@@ -9,4 +9,4 @@
   "capabilities": ["home", "episodes", "resolve"],
   "catalogOnly": true,
   "section": { "label": "Top Streaming" }
-}
+} 
