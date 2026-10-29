@@ -4,9 +4,7 @@ const REGION = "MX";
 const TTL_MS = 10 * 60 * 1000;
 const PROV = {
   netflix: "8",
-  hbo: "1899|384",
   prime: "119|9",
-  disney: "337",
   todas: "8|1899|384|119|9|337",
 };
 
@@ -151,9 +149,7 @@ function rowDefs() {
       },
     ],
     netflix: platform("netflix", "Netflix"),
-    hbo: platform("hbo", "HBO Max"),
     prime: platform("prime", "Prime Video"),
-    disney: platform("disney", "Disney+"),
     kdramas: [
       {
         id: "top-kdramas",
@@ -197,7 +193,7 @@ async function buildRows(defs) {
 
 export async function home() {
   const all = rowDefs();
-  const order = ["vistas", "estrenos", "netflix", "hbo", "prime", "disney", "kdramas"];
+  const order = ["vistas", "estrenos", "netflix", "prime", "kdramas"];
   const defs = [];
   for (const k of order) defs.push(...all[k]);
   return buildRows(defs);
@@ -209,9 +205,7 @@ export async function section({ tab }) {
     { id: "vistas", label: t("Más vistas", "Most watched") },
     { id: "estrenos", label: t("Estrenos", "New") },
     { id: "netflix", label: "Netflix" },
-    { id: "hbo", label: "HBO Max" },
     { id: "prime", label: "Prime Video" },
-    { id: "disney", label: "Disney+" },
     { id: "kdramas", label: "K-dramas" },
   ];
   const chosen = tabs.some((x) => x.id === tab) ? tab : "vistas";
@@ -228,4 +222,4 @@ export async function resolve(ref) {
   throw kino.error("not_found", "solo catalogo", {
     userMessage: "Este catálogo no reproduce: busca el título en tus otras fuentes.",
   });
-} 
+}
