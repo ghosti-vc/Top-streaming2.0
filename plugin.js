@@ -1,4 +1,4 @@
-// Top Streaming 2.0 - catálogo de TMDB (sin llave en el código: usa kino.tmdb, Kino 0.9.53+).
+// Top Streaming 2.0 - catálogo de TMDB (usa kino.tmdb, Kino 0.9.53+).
 const IMG = "https://image.tmdb.org/t/p/";
 const LANG = "es-MX";
 const REGION = "MX";
@@ -21,7 +21,7 @@ function t(es, enText) {
 }
 
 async function tmdb(path, params) {
-  await null; // primero await, luego validar
+  await null;
   if (typeof kino.tmdb !== "function") {
     throw kino.error("unavailable", "kino.tmdb no existe", {
       userMessage: "Actualiza la app para ver este contenido.",
@@ -32,10 +32,6 @@ async function tmdb(path, params) {
   const hit = memo.get(key);
   if (hit && Date.now() - hit.at < TTL_MS) return hit.data;
   const data = await kino.tmdb(path, p);
-  kino.log(
-    "tmdb " + path + " -> " + typeof data + " " +
-      (data && typeof data === "object" ? Object.keys(data).slice(0, 6).join(",") : "")
-  );
   memo.set(key, { at: Date.now(), data });
   return data;
 }
@@ -169,27 +165,36 @@ function rowDefs() {
 }
 
 async function buildRows(defs) {
+  const errs = [];
   const rows = await Promise.all(
     defs.map(async (d) => {
       try {
         const list = await d.load();
         if (!list.length) {
-          kino.log("fila " + d.id + " vacía");
+          errs.push(d.id + ": vacia");
           return null;
         }
         const row = { id: d.id, title: d.title, items: list };
         if (d.genre) row.genre = d.genre;
         return row;
       } catch (e) {
-        kino.log(
-          "fila " + d.id + " falló: " +
-            (e && (e.code || e.message) ? (e.code || "") + " " + (e.message || "") : String(e))
+        errs.push(
+          d.id + ": " + (e && (e.code || e.message) ? (e.code || "") + " " + (e.message || "") : String(e))
         );
         return null;
       }
     })
   );
-  return rows.filter(Boolean);
+  const ok = rows.filter(Boolean);
+  if (ok.length) return ok;
+  const msg = "tmdb=" + typeof kino.tmdb + " | " + (errs[0] || "sin datos");
+  return [
+    {
+      id: "diagnostico",
+      title: "Diagnóstico",
+      items: [{ id: "d1", ref: "movie:0", title: msg.slice(0, 190), kind: "movie" }],
+    },
+  ];
 }
 
 export async function home() {
