@@ -1,34 +1,39 @@
+async function test(id, path, params) {
+  await null;
+  let msg;
+  let poster;
+  try {
+    const d = await kino.tmdb(path, params);
+    const tipo = Array.isArray(d) ? "array" : typeof d;
+    const claves = d && typeof d === "object" ? Object.keys(d).slice(0, 5).join(",") : "";
+    const lista = Array.isArray(d) ? d : d && Array.isArray(d.results) ? d.results : null;
+    msg = "OK " + tipo + " [" + claves + "] n=" + (lista ? lista.length : "?");
+    if (!lista) msg += " " + JSON.stringify(d).slice(0, 80);
+    if (lista && lista[0] && lista[0].poster_path) {
+      poster = "https://image.tmdb.org/t/p/w500" + lista[0].poster_path;
+    }
+  } catch (e) {
+    msg = "ERROR " + (e && (e.code || e.message) ? (e.code || "") + " " + (e.message || "") : String(e));
+  }
+  const item = { id: "i" + id, ref: "movie:" + id, title: "Prueba " + id, kind: "movie" };
+  if (poster) item.poster = poster;
+  return { id: "r" + id, title: (id + ") " + path + " -> " + msg).slice(0, 190), items: [item] };
+}
+
 async function probe() {
   await null;
-  const out = [
-    { id: "t0", ref: "movie:1", title: "PRUEBA 0.1.4 - el plugin corre", kind: "movie" },
-    { id: "t1", ref: "movie:2", title: "kino.tmdb = " + typeof kino.tmdb, kind: "movie" },
-  ];
-  if (typeof kino.tmdb === "function") {
-    try {
-      const d = await kino.tmdb("/trending/movie/day", { language: "es-MX" });
-      const n = d && Array.isArray(d.results) ? d.results.length : -1;
-      out.push({ id: "t2", ref: "movie:3", title: "TMDB ok, resultados: " + n, kind: "movie" });
-      if (n > 0) {
-        const r = d.results[0];
-        out.push({
-          id: "m" + r.id,
-          ref: "movie:" + r.id,
-          title: String(r.title || "sin titulo"),
-          kind: "movie",
-          poster: r.poster_path ? "https://image.tmdb.org/t/p/w500" + r.poster_path : undefined,
-        });
-      }
-    } catch (e) {
-      out.push({
-        id: "t3",
-        ref: "movie:4",
-        title: ("ERROR " + (e && (e.code || e.message) ? (e.code || "") + " " + (e.message || "") : String(e))).slice(0, 190),
-        kind: "movie",
-      });
-    }
-  }
-  return [{ id: "diag", title: "Diagnóstico", items: out }];
+  const head = {
+    id: "r0",
+    title: "0) kino.tmdb = " + typeof kino.tmdb + " | version 0.1.5",
+    items: [{ id: "i0", ref: "movie:100", title: "Prueba 0", kind: "movie" }],
+  };
+  if (typeof kino.tmdb !== "function") return [head];
+  const rows = await Promise.all([
+    test("1", "/trending/movie/day", { language: "es-MX" }),
+    test("2", "trending/movie/day", { language: "es-MX" }),
+    test("3", "/trending/movie/day"),
+  ]);
+  return [head].concat(rows);
 }
 
 export async function home() {
