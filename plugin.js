@@ -104,6 +104,14 @@ function kdramas() {
   });
 }
 
+function turcas() {
+  return raw("series", "/discover/tv", {
+    with_origin_country: "TR",
+    with_original_language: "tr",
+    sort_by: "popularity.desc",
+  });
+}
+
 function rowDefs() {
   const platform = (key, name) => [
     {
@@ -158,6 +166,14 @@ function rowDefs() {
         load: async () => items(await kdramas(), 20),
       },
     ],
+    turcas: [
+      {
+        id: "top-turcas",
+        title: t("Top 20 series turcas", "Top 20 Turkish series"),
+        genre: "series",
+        load: async () => items(await turcas(), 20),
+      },
+    ],
   };
 }
 
@@ -193,7 +209,7 @@ async function buildRows(defs) {
 
 export async function home() {
   const all = rowDefs();
-  const order = ["vistas", "estrenos", "netflix", "prime", "kdramas"];
+  const order = ["vistas", "estrenos", "netflix", "prime", "kdramas", "turcas"];
   const defs = [];
   for (const k of order) defs.push(...all[k]);
   return buildRows(defs);
@@ -207,6 +223,7 @@ export async function section({ tab }) {
     { id: "netflix", label: "Netflix" },
     { id: "prime", label: "Prime Video" },
     { id: "kdramas", label: "K-dramas" },
+    { id: "turcas", label: t("Series turcas", "Turkish series") },
   ];
   const chosen = tabs.some((x) => x.id === tab) ? tab : "vistas";
   return { tabs, tab: chosen, rows: await buildRows(all[chosen]) };
