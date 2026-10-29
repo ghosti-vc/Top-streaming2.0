@@ -1,8 +1,8 @@
 {
   "id": "top-streaming-2",
   "name": "Top Streaming 2.0",
-  "version": "0.1.0",
-  "apiVersion": 6,
+  "version": "0.1.1",
+  "apiVersion": 8,
   "entry": "plugin.js",
   "description": "Estrenos y lo más visto de Netflix, HBO, Prime Video y Disney, más los K-dramas del momento. Solo catálogo.",
   "hosts": ["image.tmdb.org"],
