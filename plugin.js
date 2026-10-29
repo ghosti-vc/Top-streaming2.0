@@ -1,210 +1,172 @@
-const IMG = "https://image.tmdb.org/t/p/";
-const LANG = "es-MX";
+const IMG = "https://image.tmdb.org/t/p/w500";
+const BACKDROP = "https://image.tmdb.org/t/p/w780";
+const STILL = "https://image.tmdb.org/t/p/w300";
 const REGION = "MX";
-const TTL_MS = 10 * 60 * 1000;
-const PROV = {
-  netflix: "8",
-  hbo: "1899|384",
-  prime: "119|9",
-  disney: "337",
-  todas: "8|1899|384|119|9|337",
-};
+const PER_ROW = 15;
+const MAX_SEASONS = 10;
+const PROV = { netflix: "8", hbo: "1899|384", prime: "119|9", disney: "337" };
 
-const memo = new Map();
-
-function en() {
-  return kino.lang === "en-US";
-}
-function t(es, enText) {
-  return en() ? enText : es;
-}
-function errText(e) {
-  return e && (e.code || e.message) ? (e.code || "") + " " + (e.message || "") : String(e);
-}
+const english = () => kino.lang === "en-US";
+const tmdbLang = () => (english() ? "en-US" : "es-MX");
+const t = (es, en) => (english() ? en : es);
 
 async function tmdb(path, params) {
   await null;
   if (typeof kino.tmdb !== "function") {
     throw kino.error("unavailable", "kino.tmdb no existe", {
-      userMessage: "Actualiza la app para ver este contenido.",
+      userMessage: "Actualiza la aplicación para usar este plugin.",
     });
   }
-  const p = Object.assign({ language: LANG }, params || {});
-  const key = path + "?" + JSON.stringify(p);
-  const hit = memo.get(key);
-  if (hit && Date.now() - hit.at < TTL_MS) return hit.data;
-  const data = await kino.tmdb(path, p);
-  memo.set(key, { at: Date.now(), data });
-  return data;
+  return kino.tmdb(path, params || {});
 }
 
-function day(offsetDays) {
-  return new Date(Date.now() + offsetDays * 86400000).toISOString().slice(0, 10);
+// Límite propio: si TMDB no responde, esa fila falla sola.
+function limit(p, ms) {
+  p.catch(() => {});
+  return Promise.race([
+    p,
+    kino.sleep(ms).then(() => {
+      throw kino.error("unavailable", "sin respuesta");
+    }),
+  ]);
 }
 
-function toItem(r, kind) {
-  const title = r && (r.title || r.name);
-  if (!title || !r.id) return null;
-  const date = String(r.release_date || r.first_air_date || "");
-  const item = {
-    id: (kind === "movie" ? "m" : "s") + r.id,
-    ref: (kind === "movie" ? "movie:" : "tv:") + r.id,
-    title: String(title).slice(0, 200),
-    kind,
-    ids: { tmdb: r.id },
+function item(m, type, rank) {
+  const tv = type === "tv";
+  const title = String(m.title || m.name || "").trim();
+  if (!m.id || !title) return null;
+  const year = String((tv ? m.first_air_date : m.release_date) || "").slice(0, 4);
+  const out = {
+    id: (tv ? "t-" : "m-") + m.id,
+    ref: JSON.stringify({ kind: tv ? "tv" : "movie", id: m.id }),
+    title,
+    kind: tv ? "series" : "movie",
+    ids: { tmdb: m.id },
   };
-  if (/^\d{4}/.test(date)) item.year = date.slice(0, 4);
-  if (r.poster_path) item.poster = IMG + "w500" + r.poster_path;
-  if (r.backdrop_path) item.backdrop = IMG + "w780" + r.backdrop_path;
-  if (r.overview) item.overview = String(r.overview).slice(0, 2000);
-  if (r.vote_average > 0) item.rating = Math.round(r.vote_average * 10) / 10;
-  return item;
-}
-
-async function raw(kind, path, params) {
-  const d = await tmdb(path, params);
-  const results = Array.isArray(d) ? d : d && Array.isArray(d.results) ? d.results : [];
-  return results.map((r) => ({ r, kind }));
-}
-
-function items(list, limit) {
-  const out = [];
-  const seen = new Set();
-  for (const { r, kind } of list) {
-    const it = toItem(r, kind);
-    if (!it || seen.has(it.id)) continue;
-    seen.add(it.id);
-    out.push(it);
-    if (out.length >= limit) break;
-  }
+  if (/^\d{4}$/.test(year)) out.year = year;
+  if (m.poster_path) out.poster = IMG + m.poster_path;
+  if (m.backdrop_path) out.backdrop = BACKDROP + m.backdrop_path;
+  if (m.overview) out.overview = String(m.overview);
+  if (m.vote_average > 0) out.rating = Math.round(m.vote_average * 10) / 10;
+  if (rank) out.badges = ["#" + rank];
   return out;
 }
 
-function trending(kind) {
-  return raw(kind, "/trending/" + (kind === "movie" ? "movie" : "tv") + "/day", {});
+function toItems(results, typeOf) {
+  const items = [];
+  for (const m of results || []) {
+    const type = typeOf(m);
+    if (type !== "movie" && type !== "tv") continue;
+    const it = item(m, type, items.length + 1);
+    if (it) items.push(it);
+    if (items.length >= PER_ROW) break;
+  }
+  return items;
 }
 
-function premieres(kind, providers) {
-  const isMovie = kind === "movie";
-  const f = isMovie ? "primary_release_date" : "first_air_date";
-  const params = {
-    watch_region: REGION,
-    with_watch_providers: providers,
-    with_watch_monetization_types: "flatrate",
-    sort_by: "popularity.desc",
-  };
-  params[f + ".gte"] = day(-45);
-  params[f + ".lte"] = day(0);
-  return raw(kind, "/discover/" + (isMovie ? "movie" : "tv"), params);
-}
-
-function kdramas() {
-  return raw("series", "/discover/tv", {
-    with_origin_country: "KR",
-    with_original_language: "ko",
-    sort_by: "popularity.desc",
-  });
-}
-
-function rowDefs() {
-  const platform = (key, name) => [
-    {
-      id: key + "-pelis",
-      title: t("Películas de estreno en " + name, "New movies on " + name),
-      genre: "peliculas",
-      load: async () => items(await premieres("movie", PROV[key]), 20),
-    },
-    {
-      id: key + "-series",
-      title: t("Series de estreno en " + name, "New series on " + name),
-      genre: "series",
-      load: async () => items(await premieres("series", PROV[key]), 20),
-    },
-  ];
-  return {
-    estrenos: [
-      {
-        id: "estrenos-pelis",
-        title: t("Películas de estreno", "New movies"),
-        genre: "peliculas",
-        load: async () => items(await premieres("movie", PROV.todas), 20),
-      },
-      {
-        id: "estrenos-series",
-        title: t("Series de estreno", "New series"),
-        genre: "series",
-        load: async () => items(await premieres("series", PROV.todas), 20),
-      },
-    ],
-    vistas: [
-      {
-        id: "top-peliculas",
-        title: t("Top 20 películas más vistas", "Top 20 most watched movies"),
-        genre: "peliculas",
-        load: async () => items(await trending("movie"), 20),
-      },
-      {
-        id: "top-series",
-        title: t("Top 20 series más vistas", "Top 20 most watched series"),
-        genre: "series",
-        load: async () => items(await trending("series"), 20),
-      },
-    ],
-    netflix: platform("netflix", "Netflix"),
-    hbo: platform("hbo", "HBO Max"),
-    prime: platform("prime", "Prime Video"),
-    disney: platform("disney", "Disney+"),
-    kdramas: [
-      {
-        id: "top-kdramas",
-        title: t("Top 20 K-dramas más vistos", "Top 20 most watched K-dramas"),
-        genre: "doramas",
-        load: async () => items(await kdramas(), 20),
-      },
-    ],
-  };
-}
-
-async function buildRows(defs) {
-  const errs = [];
-  const rows = await Promise.all(
-    defs.map(async (d) => {
-      try {
-        const list = await d.load();
-        if (!list.length) {
-          errs.push(d.id + ": vacia");
-          return null;
-        }
-        const row = { id: d.id, title: d.title, items: list };
-        if (d.genre) row.genre = d.genre;
-        return row;
-      } catch (e) {
-        errs.push(d.id + ": " + errText(e));
-        return null;
-      }
-    })
+// Ruta que ya funcionaba: /trending/all/day
+async function trendingResults() {
+  const pages = await Promise.all(
+    ["1", "2", "3"].map((page) =>
+      limit(tmdb("/trending/all/day", { language: tmdbLang(), page }), 15000).catch(() => null)
+    )
   );
-  const ok = rows.filter(Boolean);
-  if (ok.length) return ok;
+  const results = [];
+  for (const r of pages) if (r && r.results) results.push(...r.results);
+  if (!results.length) throw kino.error("unavailable", "TMDB no devolvió tendencias");
+  return results;
+}
+
+async function trendingRows() {
+  const results = await trendingResults();
   return [
     {
-      id: "diagnostico",
-      title: ("Sin datos. " + (errs[0] || "")).slice(0, 190),
-      items: [{ id: "d1", ref: "movie:0", title: "Reintenta en unos minutos", kind: "movie" }],
+      id: "tendencias-movie",
+      title: t("Películas más vistas hoy", "Most watched movies today"),
+      genre: "peliculas",
+      items: toItems(results, (m) => (m.media_type === "movie" ? "movie" : null)),
+    },
+    {
+      id: "tendencias-tv",
+      title: t("Series más vistas hoy", "Most watched series today"),
+      genre: "series",
+      items: toItems(results, (m) => (m.media_type === "tv" ? "tv" : null)),
     },
   ];
+}
+
+async function kdramaRows() {
+  const results = await trendingResults();
+  const ko = results.filter((m) => m.media_type === "tv" && m.original_language === "ko");
+  let list = ko;
+  if (!list.length) {
+    const r = await limit(
+      tmdb("/discover/tv", {
+        with_original_language: "ko",
+        with_origin_country: "KR",
+        sort_by: "popularity.desc",
+        language: tmdbLang(),
+        page: "1",
+      }),
+      10000
+    );
+    list = r.results || [];
+  }
+  return [{ id: "kdramas", title: "Top K-dramas", genre: "doramas", items: toItems(list, () => "tv") }];
+}
+
+async function estrenosRows() {
+  const today = new Date().toISOString().slice(0, 10);
+  const r = await limit(
+    tmdb("/movie/now_playing", { language: tmdbLang(), region: REGION, page: "1" }),
+    10000
+  );
+  const list = (r.results || [])
+    .filter((m) => !m.release_date || m.release_date <= today)
+    .sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
+  return [{ id: "estrenos", title: t("Estrenos en cines", "In theaters"), genre: "peliculas", items: toItems(list, () => "movie") }];
+}
+
+function platformRows(key, name) {
+  const one = async (type) => {
+    const r = await limit(
+      tmdb("/discover/" + type, {
+        watch_region: REGION,
+        with_watch_providers: PROV[key],
+        with_watch_monetization_types: "flatrate",
+        sort_by: "popularity.desc",
+        language: tmdbLang(),
+        page: "1",
+      }),
+      10000
+    );
+    const label = type === "movie" ? t("películas", "movies") : "series";
+    return {
+      id: key + "-" + type,
+      title: name + " · Top " + label,
+      genre: type === "movie" ? "peliculas" : "series",
+      items: toItems(r.results, () => type),
+    };
+  };
+  return Promise.all([one("movie").catch(() => null), one("tv").catch(() => null)]);
+}
+
+function clean(rows) {
+  return [].concat(...rows.map((r) => (Array.isArray(r) ? r : [r]))).filter((r) => r && r.items && r.items.length);
 }
 
 export async function home() {
-  const all = rowDefs();
-  return buildRows(all.vistas);
+  await null;
+  const rows = clean([await trendingRows()]);
+  if (!rows.length) throw kino.error("unavailable", "sin títulos");
+  return rows;
 }
 
 export async function section({ tab }) {
-  const all = rowDefs();
+  await null;
   const tabs = [
-    { id: "estrenos", label: t("Estrenos", "New") },
     { id: "vistas", label: t("Más vistas", "Most watched") },
+    { id: "estrenos", label: t("Estrenos", "New") },
     { id: "netflix", label: "Netflix" },
     { id: "hbo", label: "HBO Max" },
     { id: "prime", label: "Prime Video" },
@@ -212,17 +174,61 @@ export async function section({ tab }) {
     { id: "kdramas", label: "K-dramas" },
   ];
   const chosen = tabs.some((x) => x.id === tab) ? tab : "vistas";
-  return { tabs, tab: chosen, rows: await buildRows(all[chosen]) };
+  const names = { netflix: "Netflix", hbo: "HBO Max", prime: "Prime Video", disney: "Disney+" };
+  let rows = [];
+  try {
+    if (chosen === "vistas") rows = await trendingRows();
+    else if (chosen === "estrenos") rows = await estrenosRows();
+    else if (chosen === "kdramas") rows = await kdramaRows();
+    else rows = await platformRows(chosen, names[chosen]);
+  } catch (e) {
+    rows = [];
+  }
+  return { tabs, tab: chosen, rows: clean([rows]) };
 }
 
 export async function episodes(ref) {
   await null;
-  return { episodes: [] };
+  let r = null;
+  try {
+    r = JSON.parse(ref);
+  } catch (e) {
+    r = null;
+  }
+  if (!r || r.kind !== "tv" || !r.id) throw kino.error("not_found", "ref inválido");
+  const language = tmdbLang();
+  const show = await tmdb("/tv/" + r.id, { language });
+  const seasons = (show.seasons || []).filter((s) => s.season_number > 0).slice(0, MAX_SEASONS);
+  const full = await Promise.all(
+    seasons.map((s) => tmdb("/tv/" + r.id + "/season/" + s.season_number, { language }).catch(() => null))
+  );
+  const out = [];
+  for (const season of full) {
+    if (!season) continue;
+    for (const e of season.episodes || []) {
+      if (!(e.episode_number >= 1)) continue;
+      const ep = {
+        season: e.season_number,
+        number: e.episode_number,
+        ref: JSON.stringify({ kind: "tv", id: r.id, s: e.season_number, e: e.episode_number }),
+      };
+      if (e.name) ep.title = String(e.name);
+      if (e.overview) ep.overview = String(e.overview);
+      if (e.still_path) ep.still = STILL + e.still_path;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(e.air_date || "")) ep.airDate = e.air_date;
+      if (e.runtime >= 1 && e.runtime <= 1000) ep.runtimeMinutes = e.runtime;
+      out.push(ep);
+    }
+  }
+  return {
+    series: { title: show.name, overview: show.overview || undefined, ids: { tmdb: r.id } },
+    episodes: out,
+  };
 }
 
 export async function resolve(ref) {
   await null;
-  throw kino.error("not_found", "solo catalogo", {
+  throw kino.error("not_found", "catálogo sin video", {
     userMessage: "Este catálogo no reproduce: busca el título en tus otras fuentes.",
   });
 }
