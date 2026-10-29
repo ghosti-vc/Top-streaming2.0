@@ -1,12 +1,15 @@
+
 {
   "id": "top-streaming-2",
   "name": "Top Streaming 2.0",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "apiVersion": 6,
   "entry": "plugin.js",
-  "description": "Estrenos y lo más visto de Netflix, HBO, Prime Video y Disney, más los K-dramas del momento. Solo catálogo.",
+  "description": "Estrenos y lo más visto de Netflix, HBO Max, Prime Video y Disney+, más K-dramas.",
   "hosts": ["image.tmdb.org"],
-  "capabilities": ["home", "episodes", "resolve"],
+  "capabilities": ["home", "section", "episodes", "resolve"],
   "catalogOnly": true,
-  "section": { "label": "Top Streaming" }
+  "section": {
+    "label": "Top Streaming"
+  }
 }
