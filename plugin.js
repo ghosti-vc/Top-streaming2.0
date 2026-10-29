@@ -2,7 +2,7 @@
 const IMG = "https://image.tmdb.org/t/p/";
 const LANG = "es-MX";
 const REGION = "MX";
-const TTL_MS = 60 * 1000; // lo pedido se reutiliza como máximo 1 minuto
+const TTL_MS = 60 * 1000;
 const PROV = {
   netflix: "8",
   hbo: "1899|384",
@@ -32,6 +32,10 @@ async function tmdb(path, params) {
   const hit = memo.get(key);
   if (hit && Date.now() - hit.at < TTL_MS) return hit.data;
   const data = await kino.tmdb(path, p);
+  kino.log(
+    "tmdb " + path + " -> " + typeof data + " " +
+      (data && typeof data === "object" ? Object.keys(data).slice(0, 6).join(",") : "")
+  );
   memo.set(key, { at: Date.now(), data });
   return data;
 }
@@ -61,7 +65,7 @@ function toItem(r, kind) {
 
 async function raw(kind, path, params) {
   const d = await tmdb(path, params);
-  const results = d && Array.isArray(d.results) ? d.results : [];
+  const results = Array.isArray(d) ? d : d && Array.isArray(d.results) ? d.results : [];
   return results.map((r) => ({ r, kind }));
 }
 
@@ -109,7 +113,6 @@ function popular(list) {
   return list.slice().sort((a, b) => (b.r.popularity || 0) - (a.r.popularity || 0));
 }
 
-// Cada fila: id, título, género de Kino y cómo se arma.
 function rowDefs() {
   const platform = (key, name) => [
     {
@@ -170,12 +173,18 @@ async function buildRows(defs) {
     defs.map(async (d) => {
       try {
         const list = await d.load();
-        if (!list.length) return null;
+        if (!list.length) {
+          kino.log("fila " + d.id + " vacía");
+          return null;
+        }
         const row = { id: d.id, title: d.title, items: list };
         if (d.genre) row.genre = d.genre;
         return row;
       } catch (e) {
-        kino.log("fila " + d.id + " falló: " + (e && e.code ? e.code : "error"));
+        kino.log(
+          "fila " + d.id + " falló: " +
+            (e && (e.code || e.message) ? (e.code || "") + " " + (e.message || "") : String(e))
+        );
         return null;
       }
     })
