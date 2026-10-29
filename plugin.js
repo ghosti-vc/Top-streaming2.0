@@ -1,7 +1,7 @@
 const IMG = "https://image.tmdb.org/t/p/";
 const LANG = "es-MX";
 const REGION = "MX";
-const TTL_MS = 5 * 60 * 1000;
+const TTL_MS = 10 * 60 * 1000;
 const PROV = {
   netflix: "8",
   hbo: "1899|384",
@@ -33,18 +33,9 @@ async function tmdb(path, params) {
   const key = path + "?" + JSON.stringify(p);
   const hit = memo.get(key);
   if (hit && Date.now() - hit.at < TTL_MS) return hit.data;
-  let last;
-  for (let i = 0; i < 2; i++) {
-    try {
-      const data = await kino.tmdb(path, p);
-      memo.set(key, { at: Date.now(), data });
-      return data;
-    } catch (e) {
-      last = e;
-      if (!e || e.code !== "timeout") break;
-    }
-  }
-  throw last;
+  const data = await kino.tmdb(path, p);
+  memo.set(key, { at: Date.now(), data });
+  return data;
 }
 
 function day(offsetDays) {
@@ -115,10 +106,6 @@ function kdramas() {
   });
 }
 
-function popular(list) {
-  return list.slice().sort((a, b) => (b.r.popularity || 0) - (a.r.popularity || 0));
-}
-
 function rowDefs() {
   const platform = (key, name) => [
     {
@@ -137,13 +124,16 @@ function rowDefs() {
   return {
     estrenos: [
       {
-        id: "estrenos-todas",
-        title: t("Estrenos en todas las plataformas", "New on every platform"),
-        load: async () => {
-          const m = await premieres("movie", PROV.todas);
-          const s = await premieres("series", PROV.todas);
-          return items(popular(m.concat(s)), 20);
-        },
+        id: "estrenos-pelis",
+        title: t("Películas de estreno", "New movies"),
+        genre: "peliculas",
+        load: async () => items(await premieres("movie", PROV.todas), 20),
+      },
+      {
+        id: "estrenos-series",
+        title: t("Series de estreno", "New series"),
+        genre: "series",
+        load: async () => items(await premieres("series", PROV.todas), 20),
       },
     ],
     vistas: [
@@ -177,27 +167,23 @@ function rowDefs() {
 
 async function buildRows(defs) {
   const errs = [];
-  const rows = [];
-  for (let i = 0; i < defs.length; i += 3) {
-    const part = await Promise.all(
-      defs.slice(i, i + 3).map(async (d) => {
-        try {
-          const list = await d.load();
-          if (!list.length) {
-            errs.push(d.id + ": vacia");
-            return null;
-          }
-          const row = { id: d.id, title: d.title, items: list };
-          if (d.genre) row.genre = d.genre;
-          return row;
-        } catch (e) {
-          errs.push(d.id + ": " + errText(e));
+  const rows = await Promise.all(
+    defs.map(async (d) => {
+      try {
+        const list = await d.load();
+        if (!list.length) {
+          errs.push(d.id + ": vacia");
           return null;
         }
-      })
-    );
-    rows.push(...part);
-  }
+        const row = { id: d.id, title: d.title, items: list };
+        if (d.genre) row.genre = d.genre;
+        return row;
+      } catch (e) {
+        errs.push(d.id + ": " + errText(e));
+        return null;
+      }
+    })
+  );
   const ok = rows.filter(Boolean);
   if (ok.length) return ok;
   return [
@@ -211,7 +197,7 @@ async function buildRows(defs) {
 
 export async function home() {
   const all = rowDefs();
-  return buildRows([].concat(all.estrenos, all.vistas, all.kdramas));
+  return buildRows(all.vistas);
 }
 
 export async function section({ tab }) {
@@ -225,7 +211,7 @@ export async function section({ tab }) {
     { id: "disney", label: "Disney+" },
     { id: "kdramas", label: "K-dramas" },
   ];
-  const chosen = tabs.some((x) => x.id === tab) ? tab : "estrenos";
+  const chosen = tabs.some((x) => x.id === tab) ? tab : "vistas";
   return { tabs, tab: chosen, rows: await buildRows(all[chosen]) };
 }
 
