@@ -107,12 +107,20 @@ function topOf(kind, providers) {
   });
 }
 
+// Las dos consultas salen al mismo tiempo: la espera es la de la más lenta, no la suma.
 async function platformList(kind, providers) {
-  try {
-    const list = items(await premieres(kind, providers), 20);
-    if (list.length) return list;
-  } catch (e) {}
-  return items(await topOf(kind, providers), 20);
+  let err = null;
+  const fail = (e) => {
+    if (!err) err = e;
+    return [];
+  };
+  const [a, b] = await Promise.all([
+    premieres(kind, providers).then((r) => items(r, 20)).catch(fail),
+    topOf(kind, providers).then((r) => items(r, 20)).catch(fail),
+  ]);
+  if (a.length) return a;
+  if (b.length) return b;
+  throw err || kino.error("unavailable", "vacia");
 }
 
 function kdramas() {
@@ -131,19 +139,22 @@ function turcas() {
   });
 }
 
-function rowDefs() {
+// full = true solo en las pestañas (con respaldo); en el Inicio, una sola consulta por fila.
+function rowDefs(full) {
   const platform = (key, name) => [
     {
       id: key + "-pelis",
-      title: t("Películas en " + name, "Movies on " + name),
+      title: t("Películas de estreno en " + name, "New movies on " + name),
       genre: "peliculas",
-      load: async () => platformList("movie", PROV[key]),
+      load: async () =>
+        full ? platformList("movie", PROV[key]) : items(await premieres("movie", PROV[key]), 20),
     },
     {
       id: key + "-series",
-      title: t("Series en " + name, "Series on " + name),
+      title: t("Series de estreno en " + name, "New series on " + name),
       genre: "series",
-      load: async () => platformList("series", PROV[key]),
+      load: async () =>
+        full ? platformList("series", PROV[key]) : items(await premieres("series", PROV[key]), 20),
     },
   ];
   return {
@@ -254,7 +265,7 @@ async function buildRows(defs) {
 }
 
 export async function home() {
-  const all = rowDefs();
+  const all = rowDefs(false);
   const order = ["vistas", "estrenos", "netflix", "prime", "kdramas", "turcas"];
   const defs = [];
   for (const k of order) defs.push(...all[k]);
@@ -262,7 +273,7 @@ export async function home() {
 }
 
 export async function section({ tab }) {
-  const all = rowDefs();
+  const all = rowDefs(true);
   const tabs = [
     { id: "vistas", label: t("Más vistas", "Most watched") },
     { id: "estrenos", label: t("Estrenos", "New") },
