@@ -7,8 +7,6 @@ const PACE_MS = 250;
 const PROV = {
   todas: "8|1899|384|119|9|337",
 };
-const NETFLIX = "8";
-const PRIME = "9";
 
 const memo = new Map();
 let nextAt = 0;
@@ -324,14 +322,6 @@ async function premieres(kind, providers) {
   return raw(kind, path, recentParams(kind, null));
 }
 
-// Estrenos de una sola plataforma. A diferencia de premieres(), si no hay
-// resultados NO cae a "todas": la fila avisa en vez de mostrar títulos de
-// otras plataformas bajo el nombre de Netflix o Prime Video.
-function platformPremieres(kind, provider) {
-  const path = "/discover/" + (kind === "movie" ? "movie" : "tv");
-  return raw(kind, path, recentParams(kind, provider));
-}
-
 // Una sola fila de estrenos: películas y series de todas las plataformas,
 // mezcladas por lo más popular.
 async function estrenosTodas() {
@@ -373,35 +363,11 @@ function rowDefs() {
             () => cinemetaRecent(20)
           ),
       },
-      {
-        id: "netflix-pelis",
-        title: t("Estrenos de Netflix · Películas", "New on Netflix · Movies"),
-        genre: "peliculas",
-        load: async () => items(await platformPremieres("movie", NETFLIX), 20),
-      },
-      {
-        id: "netflix-series",
-        title: t("Estrenos de Netflix · Series", "New on Netflix · Series"),
-        genre: "series",
-        load: async () => items(await platformPremieres("series", NETFLIX), 20),
-      },
-      {
-        id: "prime-pelis",
-        title: t("Estrenos de Prime Video · Películas", "New on Prime Video · Movies"),
-        genre: "peliculas",
-        load: async () => items(await platformPremieres("movie", PRIME), 20),
-      },
-      {
-        id: "prime-series",
-        title: t("Estrenos de Prime Video · Series", "New on Prime Video · Series"),
-        genre: "series",
-        load: async () => items(await platformPremieres("series", PRIME), 20),
-      },
     ],
     vistas: [
       {
         id: "top-peliculas",
-        title: t("Top 20 películas más vistas · v0.1.46", "Top 20 most watched movies · v0.1.46"),
+        title: t("Top 20 películas más vistas · v0.1.44", "Top 20 most watched movies · v0.1.44"),
         genre: "peliculas",
         load: () =>
           withFallback(
@@ -469,7 +435,6 @@ function reasonText(e) {
   }
   if (c === "invalid_request") return "consulta no aceptada";
   if (c === "too_large") return "respuesta muy grande";
-  if (c === "not_found") return "sin resultados";
   if (c === "vacia") return "sin resultados";
   return errText(e).slice(0, 60) || "error";
 }
