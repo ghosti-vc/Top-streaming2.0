@@ -91,7 +91,7 @@ function premieres(kind, providers) {
     with_watch_monetization_types: "flatrate",
     sort_by: "popularity.desc",
   };
-  params[f + ".gte"] = day(-45);
+  params[f + ".gte"] = day(-120);
   params[f + ".lte"] = day(0);
   return raw(kind, "/discover/" + (isMovie ? "movie" : "tv"), params);
 }
