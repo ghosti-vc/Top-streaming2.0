@@ -93,9 +93,123 @@ function trending(kind) {
   return raw(kind, "/trending/" + (kind === "movie" ? "movie" : "tv") + "/day", {});
 }
 
+// ---------- JustWatch (el catálogo de la app de JustWatch) ----------
+// Segunda fuente: solo se usa si TMDB no trae nada o falla. Una sola consulta
+// GraphQL trae la lista completa; sus posters vienen como plantilla y hay que
+// completarlos con un tamaño y un formato.
+const JW = "https://apis.justwatch.com/graphql";
+const JW_IMG = "https://images.justwatch.com";
+const JW_QUERY =
+  "query Top($country: Country!, $language: Language!, $first: Int!) {" +
+  " popularTitles(country: $country, first: $first, sortBy: POPULAR, filter: {objectTypes: [%TYPES%]}) {" +
+  "  edges { node { ... on MovieOrShow {" +
+  "   objectId objectType" +
+  "   content(country: $country, language: $language) {" +
+  "    title originalReleaseYear originalReleaseDate posterUrl shortDescription" +
+  "    scoring { imdbScore } externalIds { imdbId tmdbId }" +
+  "   }" +
+  "  } } }" +
+  " }" +
+  "}";
+
+async function justwatch(types, first) {
+  const key = "jw:" + types + ":" + first;
+  const hit = memo.get(key);
+  if (hit && Date.now() - hit.at < TTL_MS) return hit.data;
+  await pace();
+  const r = await kino.fetch(JW, {
+    method: "POST",
+    body: {
+      json: {
+        query: JW_QUERY.replace("%TYPES%", types),
+        variables: { country: REGION, language: "es", first },
+      },
+    },
+  });
+  if (!r.ok) throw kino.error("unavailable", "JustWatch respondió " + r.status);
+  const d = await r.json();
+  if (d && Array.isArray(d.errors) && d.errors.length) {
+    throw kino.error("unavailable", "JustWatch: " + String(d.errors[0].message || "consulta rechazada").slice(0, 120));
+  }
+  const edges = d && d.data && d.data.popularTitles && d.data.popularTitles.edges;
+  const list = Array.isArray(edges) ? edges.map((e) => e && e.node).filter(Boolean) : [];
+  memo.set(key, { at: Date.now(), data: list });
+  return list;
+}
+
+// "/poster/123/{profile}/nombre.{format}" -> "https://images.justwatch.com/poster/123/s592/nombre.jpg"
+function jwPoster(url) {
+  const s = String(url || "");
+  if (!s) return "";
+  const path = s.replace("{profile}", "s592").replace("{format}", "jpg");
+  if (/^https?:\/\//.test(path)) return path;
+  return JW_IMG + (path.charAt(0) === "/" ? "" : "/") + path;
+}
+
+function jwItem(n) {
+  const c = n && n.content;
+  if (!c || !c.title) return null;
+  const kind = n.objectType === "MOVIE" ? "movie" : n.objectType === "SHOW" ? "series" : "";
+  if (!kind) return null;
+  const ext = c.externalIds || {};
+  const imdb = /^tt\d{5,10}$/.test(String(ext.imdbId || "")) ? String(ext.imdbId) : "";
+  const tmdb = parseInt(ext.tmdbId, 10);
+  const hasTmdb = Number.isFinite(tmdb) && tmdb > 0;
+  const id = imdb || (hasTmdb ? "tmdb" + tmdb : "jw" + String(n.objectId || ""));
+  const refId = imdb || (hasTmdb ? String(tmdb) : String(n.objectId || ""));
+  if (!/^[A-Za-z0-9._~-]{1,128}$/.test(id) || !refId) return null;
+  const item = {
+    id,
+    ref: (kind === "movie" ? "movie:" : "tv:") + refId,
+    title: String(c.title).slice(0, 200),
+    kind,
+    ids: {},
+  };
+  if (imdb) item.ids.imdb = imdb;
+  if (hasTmdb) item.ids.tmdb = tmdb;
+  if (c.originalReleaseYear > 0) item.year = String(c.originalReleaseYear);
+  const poster = jwPoster(c.posterUrl);
+  if (poster) item.poster = poster;
+  if (c.shortDescription) item.overview = String(c.shortDescription).slice(0, 2000);
+  const score = c.scoring && c.scoring.imdbScore;
+  if (score > 0) item.rating = Math.round(score * 10) / 10;
+  return item;
+}
+
+function jwItems(nodes, limit) {
+  const out = [];
+  const seen = new Set();
+  for (const n of nodes) {
+    const it = jwItem(n);
+    if (!it || seen.has(it.id)) continue;
+    seen.add(it.id);
+    out.push(it);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+function justwatchItems(types, first, limit) {
+  return justwatch(types, first).then((nodes) => jwItems(nodes, limit));
+}
+
+// "Estrenos" de JustWatch: su lista popular trae de todo, así que nos quedamos
+// con lo que se estrenó en los últimos 45 días (el mismo plazo que usa TMDB).
+async function justwatchRecent(limit) {
+  const nodes = await justwatch("MOVIE, SHOW", 100);
+  const from = day(-45);
+  const to = day(0);
+  const recent = nodes.filter((n) => {
+    const date = String((n.content && n.content.originalReleaseDate) || "");
+    return /^\d{4}-\d{2}-\d{2}$/.test(date) && date >= from && date <= to;
+  });
+  recent.sort((a, b) => String(b.content.originalReleaseDate).localeCompare(String(a.content.originalReleaseDate)));
+  return jwItems(recent, limit);
+}
+
 // ---------- Cinemeta (el catálogo de Stremio, hecho con datos de IMDb) ----------
-// Segunda fuente: solo se usa si TMDB no trae nada o falla, para que las filas
-// no se queden vacías. No agrega filas: rellena las que ya existen.
+// Tercera fuente: solo se usa si TMDB y JustWatch no traen nada. No agrega
+// filas: rellena las que ya existen.
 const CM = "https://cinemeta-catalogs.strem.io";
 
 async function cinemeta(catalog, type, extra) {
@@ -158,17 +272,20 @@ async function cinemetaRecent(limit) {
   return csItems(all, limit);
 }
 
-// TMDB primero; si falla o vuelve vacío, Cinemeta. Si Cinemeta también falla,
-// el error sube y la fila muestra su aviso.
-async function withFallback(primary, fallback) {
-  try {
-    const list = await primary();
-    if (list && list.length) return list;
-    kino.log("fuente principal sin datos, uso Cinemeta");
-  } catch (e) {
-    kino.log("fuente principal falló, uso Cinemeta:", errText(e));
+// TMDB primero; si falla o vuelve vacío, JustWatch; y si tampoco, Cinemeta.
+// Si ninguna fuente trae datos, el error sube y la fila muestra su aviso.
+async function withFallback(primary, second, third) {
+  const sources = [primary, second, third].filter(Boolean);
+  for (let i = 0; i < sources.length; i++) {
+    try {
+      const list = await sources[i]();
+      if (list && list.length) return list;
+      kino.log("fuente " + (i + 1) + " sin datos, pruebo la siguiente");
+    } catch (e) {
+      kino.log("fuente " + (i + 1) + " falló, pruebo la siguiente:", errText(e));
+    }
   }
-  return fallback();
+  throw kino.error("unavailable", "ninguna fuente respondió");
 }
 
 function recentParams(kind, providers) {
@@ -242,6 +359,7 @@ function rowDefs() {
         load: () =>
           withFallback(
             async () => items(await estrenosTodas(), 20),
+            () => justwatchRecent(20),
             () => cinemetaRecent(20)
           ),
       },
@@ -249,11 +367,12 @@ function rowDefs() {
     vistas: [
       {
         id: "top-peliculas",
-        title: t("Top 20 películas más vistas · v0.1.43", "Top 20 most watched movies · v0.1.43"),
+        title: t("Top 20 películas más vistas · v0.1.44", "Top 20 most watched movies · v0.1.44"),
         genre: "peliculas",
         load: () =>
           withFallback(
             async () => items(await trending("movie"), 20),
+            () => justwatchItems("MOVIE", 40, 20),
             () => cinemetaItems("top", "movie", 20)
           ),
       },
@@ -264,6 +383,7 @@ function rowDefs() {
         load: () =>
           withFallback(
             async () => items(await trending("series"), 20),
+            () => justwatchItems("SHOW", 40, 20),
             () => cinemetaItems("top", "series", 20)
           ),
       },
@@ -307,10 +427,12 @@ async function mapLimit(list, limit, fn) {
 function reasonText(e) {
   const c = e && e.code ? String(e.code) : "";
   if (c === "no_tmdb_key") return "falta la llave de TMDB";
-  if (c === "rate_limited") return "TMDB limitó las peticiones";
-  if (c === "timeout") return "TMDB tardó demasiado";
-  if (c === "network") return "sin conexión con TMDB";
-  if (c === "unavailable") return "TMDB no respondió";
+  if (c === "rate_limited") return "la fuente limitó las peticiones";
+  if (c === "timeout") return "la fuente tardó demasiado";
+  if (c === "network") return "sin conexión";
+  if (c === "unavailable") {
+    return /ninguna fuente/.test(String((e && e.message) || "")) ? "ninguna fuente respondió" : "la fuente no respondió";
+  }
   if (c === "invalid_request") return "consulta no aceptada";
   if (c === "too_large") return "respuesta muy grande";
   if (c === "vacia") return "sin resultados";
