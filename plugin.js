@@ -2,6 +2,7 @@ const IMG = "https://image.tmdb.org/t/p/";
 const LANG = "es-MX";
 const REGION = "MX";
 const TTL_MS = 10 * 60 * 1000;
+const DEBUG = true; // muestra una fila "Diagnostico" con cuantos titulos trajo cada fila
 const WINDOW = 45; // dias para considerar un titulo "de estreno"
 const PROV = {
   netflix: "8",
@@ -133,13 +134,19 @@ function recentOnly(list) {
   });
 }
 
-// Peliculas por plataforma, siempre dentro de los ultimos WINDOW dias.
-// Varias consultas distintas se combinan y se quitan los repetidos.
-async function moviesPlatform(providers) {
+// Top de una plataforma (sin filtro de fechas), por popularidad en TMDB.
+// Combina "incluido en la suscripcion" con una consulta sin ese filtro para
+// que la fila no quede vacia si TMDB no marca bien la plataforma.
+async function topPlatform(kind, providers) {
+  const path = "/discover/" + (kind === "movie" ? "movie" : "tv");
+  const base = {
+    watch_region: REGION,
+    with_watch_providers: providers,
+    sort_by: "popularity.desc",
+  };
   const lists = await Promise.all([
-    safe(discoverMovies(providers, {})),
-    safe(discoverMovies(providers, { sort_by: "primary_release_date.desc" })),
-    safe(discoverMovies(providers, { with_watch_monetization_types: undefined })),
+    safe(raw(kind, path, Object.assign({ with_watch_monetization_types: "flatrate" }, base))),
+    safe(raw(kind, path, base)),
   ]);
   return [].concat(...lists);
 }
@@ -175,15 +182,15 @@ function rowDefs() {
   const platform = (key, name) => [
     {
       id: key + "-pelis",
-      title: t("Películas de estreno en " + name, "New movies on " + name),
+      title: t("Top 20 películas en " + name, "Top 20 movies on " + name),
       genre: "peliculas",
-      load: async () => items(await moviesPlatform(PROV[key]), 20),
+      load: async () => items(await topPlatform("movie", PROV[key]), 20),
     },
     {
       id: key + "-series",
-      title: t("Series de estreno en " + name, "New series on " + name),
+      title: t("Top 20 series en " + name, "Top 20 series on " + name),
       genre: "series",
-      load: async () => items(await premieres("series", PROV[key]), 20),
+      load: async () => items(await topPlatform("series", PROV[key]), 20),
     },
   ];
   return {
@@ -238,10 +245,12 @@ function rowDefs() {
 
 async function buildRows(defs) {
   const errs = [];
+  const diag = [];
   const rows = await Promise.all(
     defs.map(async (d) => {
       try {
         const list = await d.load();
+        diag.push(d.id + ": " + list.length + " titulos");
         if (!list.length) {
           errs.push(d.id + ": vacia");
           return null;
@@ -250,13 +259,28 @@ async function buildRows(defs) {
         if (d.genre) row.genre = d.genre;
         return row;
       } catch (e) {
+        diag.push(d.id + ": ERROR " + errText(e));
         errs.push(d.id + ": " + errText(e));
         return null;
       }
     })
   );
   const ok = rows.filter(Boolean);
-  if (ok.length) return ok;
+  if (ok.length) {
+    if (DEBUG) {
+      ok.push({
+        id: "diagnostico",
+        title: "Diagnostico",
+        items: diag.map((line, i) => ({
+          id: "d" + i,
+          ref: "movie:0",
+          title: line.slice(0, 190),
+          kind: "movie",
+        })),
+      });
+    }
+    return ok;
+  }
   return [
     {
       id: "diagnostico",
