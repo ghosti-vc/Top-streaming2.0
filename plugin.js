@@ -2,6 +2,7 @@ const IMG = "https://image.tmdb.org/t/p/";
 const LANG = "es-MX";
 const REGION = "MX";
 const TTL_MS = 10 * 60 * 1000;
+const FRESH_MS = 15 * 60 * 1000;
 const PROV = {
   netflix: "8",
   prime: "119|9",
@@ -177,23 +178,51 @@ function rowDefs() {
   };
 }
 
+// Memoria en el aparato: respuesta rápida y respaldo si TMDB falla.
+async function cacheGet(id) {
+  try {
+    const v = await kino.storage.get("row:" + id);
+    return v ? JSON.parse(v) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function cachePut(id, list) {
+  try {
+    const slim = list.slice(0, 15).map((it) => {
+      const c = Object.assign({}, it);
+      delete c.backdrop;
+      if (c.overview) c.overview = c.overview.slice(0, 200);
+      return c;
+    });
+    await kino.storage.set("row:" + id, JSON.stringify({ at: Date.now(), list: slim }));
+  } catch (e) {}
+}
+
 async function buildRows(defs) {
   const errs = [];
   const rows = await Promise.all(
     defs.map(async (d) => {
+      const saved = await cacheGet(d.id);
+      if (saved && saved.list && saved.list.length && Date.now() - saved.at < FRESH_MS) {
+        return { id: d.id, title: d.title, genre: d.genre, items: saved.list };
+      }
+      let list = null;
       try {
-        const list = await d.load();
+        list = await d.load();
         if (!list.length) {
           errs.push(d.id + ": vacia");
-          return null;
+          list = null;
+        } else {
+          await cachePut(d.id, list);
         }
-        const row = { id: d.id, title: d.title, items: list };
-        if (d.genre) row.genre = d.genre;
-        return row;
       } catch (e) {
         errs.push(d.id + ": " + errText(e));
-        return null;
+        list = saved && saved.list ? saved.list : null;
       }
+      if (!list || !list.length) return null;
+      return { id: d.id, title: d.title, genre: d.genre, items: list };
     })
   );
   const ok = rows.filter(Boolean);
@@ -239,4 +268,4 @@ export async function resolve(ref) {
   throw kino.error("not_found", "solo catalogo", {
     userMessage: "Este catálogo no reproduce: busca el título en tus otras fuentes.",
   });
-} 
+}
