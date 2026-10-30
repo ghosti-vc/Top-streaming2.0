@@ -520,7 +520,7 @@ async function buildRows(defs) {
 
 export async function home() {
   const all = rowDefs();
-  const order = ["vistas", "estrenos", "netflix", "prime", "kdramas", "turcas"];
+  const order = ["vistas", "estrenos", "kdramas", "turcas"];
   const defs = [];
   for (const k of order) defs.push(...all[k]);
   return buildRows(defs);
