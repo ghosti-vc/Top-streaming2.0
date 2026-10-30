@@ -3,13 +3,30 @@ const LANG = "es-MX";
 const REGION = "MX";
 const TTL_MS = 10 * 60 * 1000;
 const FRESH_MS = 15 * 60 * 1000;
+const MAX_AT_ONCE = 4;
 const PROV = {
   netflix: "8",
   prime: "119|9",
-  todas: "8|1899|384|119|9|337",
+  todas: "8|119|9",
 };
 
 const memo = new Map();
+
+// Cola: como máximo MAX_AT_ONCE consultas a TMDB al mismo tiempo.
+let active = 0;
+const waiters = [];
+async function takeSlot() {
+  if (active < MAX_AT_ONCE) {
+    active++;
+    return;
+  }
+  await new Promise((resolve) => waiters.push(resolve));
+}
+function freeSlot() {
+  const next = waiters.shift();
+  if (next) next();
+  else active--;
+}
 
 function en() {
   return kino.lang === "en-US";
@@ -32,9 +49,14 @@ async function tmdb(path, params) {
   const key = path + "?" + JSON.stringify(p);
   const hit = memo.get(key);
   if (hit && Date.now() - hit.at < TTL_MS) return hit.data;
-  const data = await kino.tmdb(path, p);
-  memo.set(key, { at: Date.now(), data });
-  return data;
+  await takeSlot();
+  try {
+    const data = await kino.tmdb(path, p);
+    memo.set(key, { at: Date.now(), data });
+    return data;
+  } finally {
+    freeSlot();
+  }
 }
 
 function day(offsetDays) {
@@ -107,7 +129,7 @@ function topOf(kind, providers) {
   });
 }
 
-// Las dos consultas salen al mismo tiempo: la espera es la de la más lenta, no la suma.
+// En las pestañas: estrenos y "lo más popular" salen a la vez; gana la primera que traiga títulos.
 async function platformList(kind, providers) {
   let err = null;
   const fail = (e) => {
@@ -257,7 +279,7 @@ async function buildRows(defs) {
   if (errs.length) {
     ok.push({
       id: "aviso",
-      title: ("Faltan filas: " + errs.slice(0, 2).join(" | ")).slice(0, 190),
+      title: ("Faltan filas: " + errs.slice(0, 3).join(" | ")).slice(0, 190),
       items: [{ id: "a1", ref: "movie:0", title: "Reintenta en unos minutos", kind: "movie" }],
     });
   }
