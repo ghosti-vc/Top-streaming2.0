@@ -2,6 +2,7 @@ const IMG = "https://image.tmdb.org/t/p/";
 const LANG = "es-MX";
 const REGION = "MX";
 const TTL_MS = 10 * 60 * 1000;
+const DEBUG = true; // ponlo en false cuando todo funcione
 const PROV = {
   netflix: "8",
   prime: "119|9",
@@ -32,7 +33,9 @@ async function tmdb(path, params) {
   const hit = memo.get(key);
   if (hit && Date.now() - hit.at < TTL_MS) return hit.data;
   const data = await kino.tmdb(path, p);
-  memo.set(key, { at: Date.now(), data });
+  // no cachear respuestas vacias
+  const results = Array.isArray(data) ? data : data && Array.isArray(data.results) ? data.results : [];
+  if (results.length) memo.set(key, { at: Date.now(), data });
   return data;
 }
 
@@ -82,7 +85,7 @@ function trending(kind) {
   return raw(kind, "/trending/" + (kind === "movie" ? "movie" : "tv") + "/day", {});
 }
 
-function premieres(kind, providers) {
+function premieres(kind, providers, days) {
   const isMovie = kind === "movie";
   const f = isMovie ? "primary_release_date" : "first_air_date";
   const params = {
@@ -91,9 +94,22 @@ function premieres(kind, providers) {
     with_watch_monetization_types: "flatrate",
     sort_by: "popularity.desc",
   };
-  params[f + ".gte"] = day(-45);
-  params[f + ".lte"] = day(0);
+  if (days) {
+    params[f + ".gte"] = day(-days);
+    params[f + ".lte"] = day(0);
+  }
   return raw(kind, "/discover/" + (isMovie ? "movie" : "tv"), params);
+}
+
+// Si hay pocos estrenos recientes, amplia la ventana de fechas
+async function premiereList(kind, providers) {
+  let best = [];
+  for (const d of [45, 120, 365, null]) {
+    const list = items(await premieres(kind, providers, d), 20);
+    if (list.length > best.length) best = list;
+    if (list.length >= 5) return list;
+  }
+  return best;
 }
 
 function kdramas() {
@@ -118,13 +134,13 @@ function rowDefs() {
       id: key + "-pelis",
       title: t("Películas de estreno en " + name, "New movies on " + name),
       genre: "peliculas",
-      load: async () => items(await premieres("movie", PROV[key]), 20),
+      load: () => premiereList("movie", PROV[key]),
     },
     {
       id: key + "-series",
       title: t("Series de estreno en " + name, "New series on " + name),
       genre: "series",
-      load: async () => items(await premieres("series", PROV[key]), 20),
+      load: () => premiereList("series", PROV[key]),
     },
   ];
   return {
@@ -133,13 +149,13 @@ function rowDefs() {
         id: "estrenos-pelis",
         title: t("Películas de estreno", "New movies"),
         genre: "peliculas",
-        load: async () => items(await premieres("movie", PROV.todas), 20),
+        load: () => premiereList("movie", PROV.todas),
       },
       {
         id: "estrenos-series",
         title: t("Series de estreno", "New series"),
         genre: "series",
-        load: async () => items(await premieres("series", PROV.todas), 20),
+        load: () => premiereList("series", PROV.todas),
       },
     ],
     vistas: [
@@ -197,7 +213,16 @@ async function buildRows(defs) {
     })
   );
   const ok = rows.filter(Boolean);
-  if (ok.length) return ok;
+  if (ok.length) {
+    if (DEBUG && errs.length) {
+      ok.push({
+        id: "debug",
+        title: ("Debug: " + errs.join(" | ")).slice(0, 190),
+        items: [{ id: "d1", ref: "movie:0", title: "ver título", kind: "movie" }],
+      });
+    }
+    return ok;
+  }
   return [
     {
       id: "diagnostico",
