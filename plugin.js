@@ -5,7 +5,7 @@ const MEMO_MS = 10 * 60 * 1000;
 const ROW_LIMIT = 20;
 const CONCURRENCY = 3;
 const PACE_MS = 600;
-const SOFT_DEADLINE_MS = 15000;
+const SOFT_DEADLINE_MS = 17000;
 
 const PROV = {
   netflix: "8",
@@ -205,32 +205,38 @@ function onPlatform(kind, providers) {
       return premieres(kind, providers, 45);
     },
     function () {
-      return premieres(kind, providers, 365);
-    },
-    function () {
       return popular(kind, providers);
     },
   ];
 }
 
-function trending(kind) {
-  return raw(kind, "/trending/" + (kind === "movie" ? "movie" : "tv") + "/day", {});
+function onTrending(kind) {
+  return [
+    function () {
+      return raw(kind, "/trending/" + (kind === "movie" ? "movie" : "tv") + "/day", {});
+    },
+    function () {
+      return raw(kind, "/trending/" + (kind === "movie" ? "movie" : "tv") + "/week", {});
+    },
+  ];
 }
 
-function kdramas() {
-  return raw("series", "/discover/tv", {
-    with_origin_country: "KR",
-    with_original_language: "ko",
-    sort_by: "popularity.desc",
-  });
-}
-
-function turcas() {
-  return raw("series", "/discover/tv", {
-    with_origin_country: "TR",
-    with_original_language: "tr",
-    sort_by: "popularity.desc",
-  });
+function onCountry(country, language) {
+  return [
+    function () {
+      return raw("series", "/discover/tv", {
+        with_origin_country: country,
+        with_original_language: language,
+        sort_by: "popularity.desc",
+      });
+    },
+    function () {
+      return raw("series", "/discover/tv", {
+        with_origin_country: country,
+        sort_by: "popularity.desc",
+      });
+    },
+  ];
 }
 
 function rowDefs() {
@@ -270,21 +276,13 @@ function rowDefs() {
         id: "top-peliculas",
         title: t("Top 20 películas más vistas", "Top 20 most watched movies"),
         genre: "peliculas",
-        tiers: [
-          function () {
-            return trending("movie");
-          },
-        ],
+        tiers: onTrending("movie"),
       },
       {
         id: "top-series",
         title: t("Top 20 series más vistas", "Top 20 most watched series"),
         genre: "series",
-        tiers: [
-          function () {
-            return trending("series");
-          },
-        ],
+        tiers: onTrending("series"),
       },
     ],
     netflix: platform("netflix", "Netflix"),
@@ -294,11 +292,7 @@ function rowDefs() {
         id: "top-kdramas",
         title: t("Top 20 K-dramas más vistos", "Top 20 most watched K-dramas"),
         genre: "doramas",
-        tiers: [
-          function () {
-            return kdramas();
-          },
-        ],
+        tiers: onCountry("KR", "ko"),
       },
     ],
     turcas: [
@@ -306,11 +300,7 @@ function rowDefs() {
         id: "top-turcas",
         title: t("Top 20 series turcas", "Top 20 Turkish series"),
         genre: "series",
-        tiers: [
-          function () {
-            return turcas();
-          },
-        ],
+        tiers: onCountry("TR", "tr"),
       },
     ],
   };
@@ -399,7 +389,15 @@ function diagnosticRow(errors) {
 
 async function buildRows(defs, deadline) {
   const errors = [];
-  const rows = await mapLimit(defs, CONCURRENCY, async function (d) {
+  // Cheapest rows (one or two queries) start first, so a slow row can never
+  // starve the K-dramas or the Turkish series at the end of the queue.
+  const order = [];
+  for (let i = 0; i < defs.length; i++) order.push(i);
+  order.sort(function (a, b) {
+    return defs[a].tiers.length - defs[b].tiers.length || a - b;
+  });
+  const loaded = await mapLimit(order, CONCURRENCY, async function (index) {
+    const d = defs[index];
     try {
       const list = await loadTiers(d.tiers, deadline);
       if (!list.length) return null;
@@ -411,6 +409,8 @@ async function buildRows(defs, deadline) {
       return null;
     }
   });
+  const rows = new Array(defs.length);
+  for (let i = 0; i < order.length; i++) rows[order[i]] = loaded[i];
   const ok = rows.filter(Boolean);
   if (ok.length) return ok;
   if (!errors.length) return [];
