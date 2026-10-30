@@ -2,13 +2,23 @@ const IMG = "https://image.tmdb.org/t/p/";
 const LANG = "es-MX";
 const REGION = "MX";
 const TTL_MS = 10 * 60 * 1000;
+const CONCURRENCY = 3;
+const PACE_MS = 250;
 const PROV = {
-  netflix: "8",
-  prime: "119|9",
   todas: "8|1899|384|119|9|337",
 };
 
 const memo = new Map();
+let nextAt = 0;
+
+// Una consulta cada 250 ms y como mucho 3 a la vez: en un TV lento, 10 a la vez
+// hacen que TMDB corte algunas por tiempo o por límite, y esas filas desaparecían.
+async function pace() {
+  const now = Date.now();
+  const at = now > nextAt ? now : nextAt;
+  nextAt = at + PACE_MS;
+  if (at > now) await kino.sleep(at - now);
+}
 
 function en() {
   return kino.lang === "en-US";
@@ -31,6 +41,7 @@ async function tmdb(path, params) {
   const key = path + "?" + JSON.stringify(p);
   const hit = memo.get(key);
   if (hit && Date.now() - hit.at < TTL_MS) return hit.data;
+  await pace();
   const data = await kino.tmdb(path, p);
   memo.set(key, { at: Date.now(), data });
   return data;
@@ -96,15 +107,16 @@ function premieres(kind, providers) {
   return raw(kind, "/discover/" + (isMovie ? "movie" : "tv"), params);
 }
 
-// Lo más popular de una plataforma, sin fechas de estreno.
-function platformTop(kind, providers) {
-  const isMovie = kind === "movie";
-  return raw(kind, "/discover/" + (isMovie ? "movie" : "tv"), {
-    watch_region: REGION,
-    with_watch_providers: providers,
-    with_watch_monetization_types: "flatrate",
-    sort_by: "popularity.desc",
-  });
+// Una sola fila de estrenos: películas y series de todas las plataformas,
+// mezcladas por lo más popular.
+async function estrenosTodas() {
+  const [movies, series] = await Promise.all([
+    premieres("movie", PROV.todas),
+    premieres("series", PROV.todas),
+  ]);
+  const all = movies.concat(series);
+  all.sort((a, b) => (b.r.popularity || 0) - (a.r.popularity || 0));
+  return all;
 }
 
 function kdramas() {
@@ -124,33 +136,12 @@ function turcas() {
 }
 
 function rowDefs() {
-  const platform = (key, name) => [
-    {
-      id: key + "-pelis",
-      title: t("Top 20 películas en " + name, "Top 20 movies on " + name),
-      genre: "peliculas",
-      load: async () => items(await platformTop("movie", PROV[key]), 20),
-    },
-    {
-      id: key + "-series",
-      title: t("Top 20 series en " + name, "Top 20 series on " + name),
-      genre: "series",
-      load: async () => items(await platformTop("series", PROV[key]), 20),
-    },
-  ];
   return {
     estrenos: [
       {
-        id: "estrenos-pelis",
-        title: t("Películas de estreno", "New movies"),
-        genre: "peliculas",
-        load: async () => items(await premieres("movie", PROV.todas), 20),
-      },
-      {
-        id: "estrenos-series",
-        title: t("Series de estreno", "New series"),
-        genre: "series",
-        load: async () => items(await premieres("series", PROV.todas), 20),
+        id: "estrenos",
+        title: t("Estrenos de todas las plataformas", "New on every platform"),
+        load: async () => items(await estrenosTodas(), 20),
       },
     ],
     vistas: [
@@ -167,8 +158,6 @@ function rowDefs() {
         load: async () => items(await trending("series"), 20),
       },
     ],
-    netflix: platform("netflix", "Netflix"),
-    prime: platform("prime", "Prime Video"),
     kdramas: [
       {
         id: "top-kdramas",
@@ -188,47 +177,74 @@ function rowDefs() {
   };
 }
 
+async function mapLimit(list, limit, fn) {
+  const out = new Array(list.length);
+  let next = 0;
+  async function worker() {
+    while (next < list.length) {
+      const i = next;
+      next = next + 1;
+      out[i] = await fn(list[i], i);
+    }
+  }
+  const workers = [];
+  const n = Math.min(limit, list.length);
+  for (let i = 0; i < n; i++) workers.push(worker());
+  await Promise.all(workers);
+  return out;
+}
+
+function reasonText(e) {
+  const c = e && e.code ? String(e.code) : "";
+  if (c === "no_tmdb_key") return "falta la llave de TMDB";
+  if (c === "rate_limited") return "TMDB limitó las peticiones";
+  if (c === "timeout") return "TMDB tardó demasiado";
+  if (c === "network") return "sin conexión con TMDB";
+  if (c === "unavailable") return "TMDB no respondió";
+  if (c === "invalid_request") return "consulta no aceptada";
+  if (c === "too_large") return "respuesta muy grande";
+  if (c === "vacia") return "sin resultados";
+  return errText(e).slice(0, 60) || "error";
+}
+
+// Una fila que no se pudo cargar se muestra igual, con el motivo, en vez de
+// desaparecer sin dejar rastro (que es lo que pasaba en el TV).
+function noticeRow(d, reason) {
+  kino.log("fila sin datos:", d.id, reason);
+  return {
+    id: d.id,
+    title: ("Sin datos: " + reason + " · " + d.title).slice(0, 190),
+    genre: d.genre,
+    items: [
+      {
+        id: "aviso",
+        ref: "movie:550",
+        title: ("No se pudo cargar (" + reason + "). Reintenta en unos minutos.").slice(0, 200),
+        kind: "movie",
+        ids: { tmdb: 550 },
+      },
+    ],
+  };
+}
+
 async function buildRows(defs) {
-  const errs = [];
-  const rows = await Promise.all(
-    defs.map(async (d) => {
-      try {
-        const list = await d.load();
-        if (!list.length) {
-          errs.push(d.id + ": vacia");
-          return null;
-        }
-        const row = { id: d.id, title: d.title, items: list };
-        if (d.genre) row.genre = d.genre;
-        return row;
-      } catch (e) {
-        errs.push(d.id + ": " + errText(e));
-        return null;
-      }
-    })
-  );
-  const ok = rows.filter(Boolean);
-  if (ok.length) return ok;
-  return [
-    {
-      id: "diagnostico",
-      title: ("Sin datos. " + (errs[0] || "")).slice(0, 190),
-      items: [
-        {
-          id: "d1",
-          ref: "movie:550",
-          title: "Reintenta en unos minutos",
-          kind: "movie",
-          ids: { tmdb: 550 },
-        },
-      ],
-    },
-  ];
+  const rows = await mapLimit(defs, CONCURRENCY, async (d) => {
+    try {
+      const list = await d.load();
+      if (!list.length) return noticeRow(d, reasonText({ code: "vacia" }));
+      const row = { id: d.id, title: d.title, items: list };
+      if (d.genre) row.genre = d.genre;
+      return row;
+    } catch (e) {
+      return noticeRow(d, reasonText(e));
+    }
+  });
+  return rows.filter(Boolean);
 }
 
 export async function home() {
   const all = rowDefs();
-  const order = ["vistas", "estrenos", "netflix", "prime", "kdramas", "turcas"];
+  const order = ["vistas", "estrenos", "kdramas", "turcas"];
   const defs = [];
   for (const k of order) defs.push(...all[k]);
   return buildRows(defs);
@@ -239,8 +255,6 @@ export async function section({ tab }) {
   const tabs = [
     { id: "vistas", label: t("Más vistas", "Most watched") },
     { id: "estrenos", label: t("Estrenos", "New") },
-    { id: "netflix", label: "Netflix" },
-    { id: "prime", label: "Prime Video" },
     { id: "kdramas", label: "K-dramas" },
     { id: "turcas", label: t("Series turcas", "Turkish series") },
   ];
