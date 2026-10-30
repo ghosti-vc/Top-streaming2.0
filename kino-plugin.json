@@ -1,11 +1,11 @@
 {
   "id": "top-streaming-2",
   "name": "Top Streaming 2.0",
-  "version": "0.1.95",
+  "version": "0.1.98",
   "apiVersion": 8,
   "entry": "plugin.js",
   "description": "Estrenos y lo más visto de Netflix y Prime Video, más los K-dramas y las series turcas del momento. Solo catálogo.",
-  "hosts": ["image.tmdb.org"],
+  "hosts": ["image.tmdb.org", "www.rottentomatoes.com", "api.tvmaze.com"],
   "capabilities": ["home", "episodes", "resolve"],
   "catalogOnly": true,
   "section": { "label": "Top Streaming" }
