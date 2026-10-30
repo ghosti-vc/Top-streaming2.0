@@ -1,11 +1,11 @@
 {
   "id": "top-streaming-2",
   "name": "Top Streaming 2.0",
-  "version": "0.1.61",
+  "version": "0.1.44",
   "apiVersion": 8,
   "entry": "plugin.js",
   "description": "Estrenos de todas las plataformas y lo más visto de Netflix y Prime Video, más los K-dramas y las series turcas del momento. Solo catálogo.",
-  "hosts": ["image.tmdb.org", "cinemeta-catalogs.strem.io"],
+  "hosts": ["image.tmdb.org", "apis.justwatch.com", "cinemeta-catalogs.strem.io"],
   "capabilities": ["home", "episodes", "resolve"],
   "catalogOnly": true,
   "section": { "label": "Top Streaming" }
