@@ -355,7 +355,7 @@ function rowDefs() {
     estrenos: [
       {
         id: "estrenos",
-        title: t("Estrenos", "New releases"),
+        title: t("Estrenos de todas las plataformas", "New on every platform"),
         load: () =>
           withFallback(
             async () => items(await estrenosTodas(), 20),
@@ -367,7 +367,7 @@ function rowDefs() {
     vistas: [
       {
         id: "top-peliculas",
-        title: t("Top 20: Películas", "Top 20: Movies"),
+        title: t("Top 20 películas más vistas · v0.1.44", "Top 20 most watched movies · v0.1.44"),
         genre: "peliculas",
         load: () =>
           withFallback(
@@ -378,7 +378,7 @@ function rowDefs() {
       },
       {
         id: "top-series",
-        title: t("Top 20: Series", "Top 20: Series"),
+        title: t("Top 20 series más vistas", "Top 20 most watched series"),
         genre: "series",
         load: () =>
           withFallback(
@@ -391,7 +391,7 @@ function rowDefs() {
     kdramas: [
       {
         id: "top-kdramas",
-        title: t("Top 20: K-Dramas", "Top 20: K-Dramas"),
+        title: t("Top 20 K-dramas más vistos", "Top 20 most watched K-dramas"),
         genre: "doramas",
         load: async () => items(await kdramas(), 20),
       },
@@ -399,7 +399,7 @@ function rowDefs() {
     turcas: [
       {
         id: "top-turcas",
-        title: t("Top 20: Series Turcas", "Top 20: Turkish Series"),
+        title: t("Top 20 series turcas", "Top 20 Turkish series"),
         genre: "series",
         load: async () => items(await turcas(), 20),
       },
