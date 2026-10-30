@@ -6,6 +6,8 @@ const CONCURRENCY = 3;
 const PACE_MS = 250;
 const PROV = {
   todas: "8|1899|384|119|9|337",
+  netflix: "8",
+  prime: "119|9",
 };
 
 const memo = new Map();
@@ -322,6 +324,29 @@ async function premieres(kind, providers) {
   return raw(kind, path, recentParams(kind, null));
 }
 
+// Estrenos de UNA plataforma (Netflix o Prime). No se rellena con títulos de
+// otras plataformas: si TMDB falla, la fila muestra su aviso. Si hay pocos
+// estrenos en 45 días, amplía a 120 días (solo cuando la respuesta viene vacía).
+async function platformPremieres(kind, providers) {
+  const isMovie = kind === "movie";
+  const path = "/discover/" + (isMovie ? "movie" : "tv");
+  const f = isMovie ? "primary_release_date" : "first_air_date";
+  const windows = [45, 120];
+  for (let i = 0; i < windows.length; i++) {
+    const params = {
+      sort_by: "popularity.desc",
+      watch_region: REGION,
+      with_watch_providers: providers,
+      with_watch_monetization_types: "flatrate",
+    };
+    params[f + ".gte"] = day(-windows[i]);
+    params[f + ".lte"] = day(0);
+    const list = await raw(kind, path, params);
+    if (list.length) return list;
+  }
+  return [];
+}
+
 // Una sola fila de estrenos: películas y series de todas las plataformas,
 // mezcladas por lo más popular.
 async function estrenosTodas() {
@@ -348,6 +373,23 @@ function turcas() {
     with_original_language: "tr",
     sort_by: "popularity.desc",
   });
+}
+
+function platformRows(key, name) {
+  return [
+    {
+      id: key + "-pelis",
+      title: t("Películas de estreno en " + name, "New movies on " + name),
+      genre: "peliculas",
+      load: async () => items(await platformPremieres("movie", PROV[key]), 20),
+    },
+    {
+      id: key + "-series",
+      title: t("Series de estreno en " + name, "New series on " + name),
+      genre: "series",
+      load: async () => items(await platformPremieres("series", PROV[key]), 20),
+    },
+  ];
 }
 
 function rowDefs() {
@@ -388,6 +430,8 @@ function rowDefs() {
           ),
       },
     ],
+    netflix: platformRows("netflix", "Netflix"),
+    prime: platformRows("prime", "Prime Video"),
     kdramas: [
       {
         id: "top-kdramas",
@@ -476,7 +520,7 @@ async function buildRows(defs) {
 
 export async function home() {
   const all = rowDefs();
-  const order = ["vistas", "estrenos", "kdramas", "turcas"];
+  const order = ["vistas", "estrenos", "netflix", "prime", "kdramas", "turcas"];
   const defs = [];
   for (const k of order) defs.push(...all[k]);
   return buildRows(defs);
@@ -487,6 +531,8 @@ export async function section({ tab }) {
   const tabs = [
     { id: "vistas", label: t("Más vistas", "Most watched") },
     { id: "estrenos", label: t("Estrenos", "New") },
+    { id: "netflix", label: "Netflix" },
+    { id: "prime", label: "Prime Video" },
     { id: "kdramas", label: "K-dramas" },
     { id: "turcas", label: t("Series turcas", "Turkish series") },
   ];
