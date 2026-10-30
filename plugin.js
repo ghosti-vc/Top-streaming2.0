@@ -2,6 +2,7 @@ const IMG = "https://image.tmdb.org/t/p/";
 const LANG = "es-MX";
 const REGION = "MX";
 const TTL_MS = 10 * 60 * 1000;
+const WINDOW = 45; // dias para considerar un titulo "de estreno"
 const PROV = {
   netflix: "8",
   prime: "119|9",
@@ -91,9 +92,67 @@ function premieres(kind, providers) {
     with_watch_monetization_types: "flatrate",
     sort_by: "popularity.desc",
   };
-  params[f + ".gte"] = day(-120);
+  params[f + ".gte"] = day(-WINDOW);
   params[f + ".lte"] = day(0);
   return raw(kind, "/discover/" + (isMovie ? "movie" : "tv"), params);
+}
+
+async function safe(promise) {
+  try {
+    return await promise;
+  } catch (e) {
+    return [];
+  }
+}
+
+function discoverMovies(providers, extra) {
+  const params = Object.assign(
+    {
+      watch_region: REGION,
+      with_watch_providers: providers,
+      with_watch_monetization_types: "flatrate",
+      sort_by: "popularity.desc",
+      "primary_release_date.gte": day(-WINDOW),
+      "primary_release_date.lte": day(0),
+    },
+    extra || {}
+  );
+  for (const k of Object.keys(params)) {
+    if (params[k] === undefined || params[k] === null) delete params[k];
+  }
+  return raw("movie", "/discover/movie", params);
+}
+
+// Deja solo titulos lanzados dentro de la ventana de estrenos.
+function recentOnly(list) {
+  const from = day(-WINDOW);
+  const to = day(0);
+  return list.filter(({ r }) => {
+    const d = String((r && (r.release_date || r.first_air_date)) || "");
+    return d >= from && d <= to;
+  });
+}
+
+// Peliculas por plataforma, siempre dentro de los ultimos WINDOW dias.
+// Varias consultas distintas se combinan y se quitan los repetidos.
+async function moviesPlatform(providers) {
+  const lists = await Promise.all([
+    safe(discoverMovies(providers, {})),
+    safe(discoverMovies(providers, { sort_by: "primary_release_date.desc" })),
+    safe(discoverMovies(providers, { with_watch_monetization_types: undefined })),
+  ]);
+  return [].concat(...lists);
+}
+
+// Peliculas de estreno en general: plataformas + cartelera de Mexico + tendencias.
+async function moviesGeneral() {
+  const lists = await Promise.all([
+    safe(discoverMovies(PROV.todas, {})),
+    safe(discoverMovies(PROV.todas, { sort_by: "primary_release_date.desc" })),
+    safe(raw("movie", "/movie/now_playing", { region: REGION }).then(recentOnly)),
+    safe(raw("movie", "/trending/movie/week", {}).then(recentOnly)),
+  ]);
+  return [].concat(...lists);
 }
 
 function kdramas() {
@@ -118,7 +177,7 @@ function rowDefs() {
       id: key + "-pelis",
       title: t("Películas de estreno en " + name, "New movies on " + name),
       genre: "peliculas",
-      load: async () => items(await premieres("movie", PROV[key]), 20),
+      load: async () => items(await moviesPlatform(PROV[key]), 20),
     },
     {
       id: key + "-series",
@@ -133,7 +192,7 @@ function rowDefs() {
         id: "estrenos-pelis",
         title: t("Películas de estreno", "New movies"),
         genre: "peliculas",
-        load: async () => items(await premieres("movie", PROV.todas), 20),
+        load: async () => items(await moviesGeneral(), 20),
       },
       {
         id: "estrenos-series",
