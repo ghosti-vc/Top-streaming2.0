@@ -9,8 +9,6 @@ const PROV = {
 };
 
 const memo = new Map();
-const STALE_MS = 7 * 24 * 60 * 60 * 1000;
-let deadline = 0;
 
 function en() {
   return kino.lang === "en-US";
@@ -33,21 +31,9 @@ async function tmdb(path, params) {
   const key = path + "?" + JSON.stringify(p);
   const hit = memo.get(key);
   if (hit && Date.now() - hit.at < TTL_MS) return hit.data;
-  let lastErr;
-  for (let i = 0; i < 3; i++) {
-    try {
-      const data = await kino.tmdb(path, p);
-      memo.set(key, { at: Date.now(), data });
-      return data;
-    } catch (e) {
-      lastErr = e;
-      const c = e && e.code;
-      const retry = c === "rate_limited" || c === "unavailable" || c === "timeout";
-      if (!retry || i === 2 || Date.now() + 3500 > deadline) throw e;
-      await kino.sleep(2000 + i * 1000);
-    }
-  }
-  throw lastErr;
+  const data = await kino.tmdb(path, p);
+  memo.set(key, { at: Date.now(), data });
+  return data;
 }
 
 function day(offsetDays) {
@@ -191,66 +177,26 @@ function rowDefs() {
   };
 }
 
-function saveStale(id, list) {
-  try {
-    const slim = list.map((it) => {
-      const c = Object.assign({}, it);
-      delete c.overview;
-      delete c.backdrop;
-      return c;
-    });
-    kino.storage.set("row:" + id, JSON.stringify(slim), { ttlMs: STALE_MS });
-  } catch (e) {
-    // sin espacio: se sigue sin copia guardada
-  }
-}
-
-function readStale(id) {
-  try {
-    const raw = kino.storage.get("row:" + id);
-    const list = raw ? JSON.parse(raw) : [];
-    return Array.isArray(list) ? list : [];
-  } catch (e) {
-    return [];
-  }
-}
-
-async function loadRow(d, errs) {
-  let list = [];
-  let why = "";
-  try {
-    list = await d.load();
-    if (list.length) saveStale(d.id, list);
-    else why = "vacia";
-  } catch (e) {
-    why = errText(e);
-  }
-  if (!list.length) {
-    list = readStale(d.id);
-    if (list.length) kino.log("fila guardada usada: " + d.id);
-  }
-  if (!list.length) {
-    errs.push(d.id + ": " + why);
-    return null;
-  }
-  const row = { id: d.id, title: d.title, items: list };
-  if (d.genre) row.genre = d.genre;
-  return row;
-}
-
 async function buildRows(defs) {
-  deadline = Date.now() + 13000;
   const errs = [];
-  const results = new Array(defs.length).fill(null);
-  let next = 0;
-  async function worker() {
-    while (next < defs.length) {
-      const i = next++;
-      results[i] = await loadRow(defs[i], errs);
-    }
-  }
-  await Promise.all([worker(), worker(), worker()]);
-  const ok = results.filter(Boolean);
+  const rows = await Promise.all(
+    defs.map(async (d) => {
+      try {
+        const list = await d.load();
+        if (!list.length) {
+          errs.push(d.id + ": vacia");
+          return null;
+        }
+        const row = { id: d.id, title: d.title, items: list };
+        if (d.genre) row.genre = d.genre;
+        return row;
+      } catch (e) {
+        errs.push(d.id + ": " + errText(e));
+        return null;
+      }
+    })
+  );
+  const ok = rows.filter(Boolean);
   if (ok.length) return ok;
   return [
     {
