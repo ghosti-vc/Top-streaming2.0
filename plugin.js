@@ -3,7 +3,8 @@ const LANG = "es-MX";
 const REGION = "MX";
 const MEMO_MS = 10 * 60 * 1000;
 const ROW_LIMIT = 20;
-const CONCURRENCY = 4;
+const CONCURRENCY = 3;
+const PACE_MS = 600;
 const SOFT_DEADLINE_MS = 15000;
 
 const PROV = {
@@ -42,6 +43,17 @@ const GENRES = {
 };
 
 const memo = new Map();
+const inflight = new Map();
+let nextStart = 0;
+
+// Kino's own TMDB key allows about 20 calls every 10 s: we leave one call every 600 ms
+// so the rows never trip that limit, even when several load at once.
+async function pace() {
+  const now = Date.now();
+  const start = now > nextStart ? now : nextStart;
+  nextStart = start + PACE_MS;
+  if (start > now) await kino.sleep(start - now);
+}
 
 function en() {
   return kino.lang === "en-US";
@@ -51,13 +63,9 @@ function t(es, enText) {
   return en() ? enText : es;
 }
 
-function errText(e) {
-  return e && (e.code || e.message) ? (e.code || "") + " " + (e.message || "") : String(e);
-}
-
 function transient(e) {
   const c = e && e.code;
-  return c === "rate_limited" || c === "timeout" || c === "network" || c === "unavailable";
+  return c === "rate_limited" || c === "timeout" || c === "network";
 }
 
 function hasTmdb() {
@@ -75,22 +83,33 @@ async function tmdb(path, params) {
   const key = path + "?" + JSON.stringify(p);
   const hit = memo.get(key);
   if (hit && Date.now() - hit.at < MEMO_MS) return hit.data;
-  const data = await kino.tmdb(path, p);
-  if (memo.size > 120) memo.clear();
-  memo.set(key, { at: Date.now(), data: data });
-  return data;
+  const pending = inflight.get(key);
+  if (pending) return pending;
+  const job = (async function () {
+    await pace();
+    const data = await kino.tmdb(path, p);
+    if (memo.size > 120) memo.clear();
+    memo.set(key, { at: Date.now(), data: data });
+    return data;
+  })();
+  inflight.set(key, job);
+  try {
+    return await job;
+  } finally {
+    inflight.delete(key);
+  }
 }
 
 async function withRetry(fn, deadline) {
   let last = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 2; attempt++) {
     try {
       return await fn();
     } catch (e) {
       last = e;
       if (!transient(e)) throw e;
       if (Date.now() + 900 > deadline) throw e;
-      await kino.sleep(attempt === 0 ? 350 : 1200);
+      if (attempt === 0) await kino.sleep(400);
     }
   }
   throw last;
@@ -332,6 +351,52 @@ async function mapLimit(list, limit, fn) {
   return out;
 }
 
+function errorCode(e) {
+  return e && e.code ? String(e.code) : "";
+}
+
+// These are setup problems: nothing will work until the person fixes something,
+// so we let Kino show its own message instead of caching a fake row for 6 hours.
+function isHard(e) {
+  const c = errorCode(e);
+  return c === "no_tmdb_key" || c === "unavailable" || c === "invalid_request" || c === "not_allowed";
+}
+
+function reasonText(errors) {
+  let code = "";
+  for (let i = 0; i < errors.length; i++) {
+    const c = errorCode(errors[i].e);
+    if (!code) code = c;
+    if (isHard(errors[i].e)) {
+      code = c;
+      break;
+    }
+  }
+  if (code === "no_tmdb_key") return t("falta la llave de TMDB", "the TMDB key is missing");
+  if (code === "rate_limited") return t("TMDB limitó las peticiones, espera unos minutos", "TMDB rate-limited us, wait a few minutes");
+  if (code === "timeout") return t("TMDB tardó demasiado, reintenta en un momento", "TMDB timed out, try again in a moment");
+  if (code === "network") return t("no hay conexión con TMDB", "there is no connection to TMDB");
+  return t("TMDB no respondió, reintenta en un momento", "TMDB did not answer, try again in a moment");
+}
+
+// Only when every row failed: one row that explains why, so the Home is not silently empty.
+function diagnosticRow(errors) {
+  const title = t("Sin datos de TMDB: " + reasonText(errors), "No TMDB data: " + reasonText(errors));
+  return {
+    id: "diagnostico",
+    title: title.slice(0, 190),
+    items: [
+      {
+        id: "diagnostico-1",
+        ref: "movie:550",
+        title: t("Revisa tu llave de TMDB en Ajustes y vuelve al Inicio", "Check your TMDB key in Settings and come back to Home").slice(0, 200),
+        kind: "movie",
+        ids: { tmdb: 550 },
+      },
+    ],
+  };
+}
+
 async function buildRows(defs, deadline) {
   const errors = [];
   const rows = await mapLimit(defs, CONCURRENCY, async function (d) {
@@ -342,14 +407,17 @@ async function buildRows(defs, deadline) {
       if (d.genre) row.genre = d.genre;
       return row;
     } catch (e) {
-      errors.push(d.id + ": " + errText(e));
+      errors.push({ id: d.id, e: e });
       return null;
     }
   });
-  if (errors.length) {
-    throw kino.error("unavailable", errors.join(" | ").slice(0, 190));
+  const ok = rows.filter(Boolean);
+  if (ok.length) return ok;
+  if (!errors.length) return [];
+  for (let i = 0; i < errors.length; i++) {
+    if (isHard(errors[i].e)) throw errors[i].e;
   }
-  return rows.filter(Boolean);
+  return [diagnosticRow(errors)];
 }
 
 export async function home() {
