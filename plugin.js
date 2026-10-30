@@ -96,6 +96,17 @@ function premieres(kind, providers) {
   return raw(kind, "/discover/" + (isMovie ? "movie" : "tv"), params);
 }
 
+// Lo más popular de una plataforma, sin fechas de estreno.
+function platformTop(kind, providers) {
+  const isMovie = kind === "movie";
+  return raw(kind, "/discover/" + (isMovie ? "movie" : "tv"), {
+    watch_region: REGION,
+    with_watch_providers: providers,
+    with_watch_monetization_types: "flatrate",
+    sort_by: "popularity.desc",
+  });
+}
+
 function kdramas() {
   return raw("series", "/discover/tv", {
     with_origin_country: "KR",
@@ -116,15 +127,15 @@ function rowDefs() {
   const platform = (key, name) => [
     {
       id: key + "-pelis",
-      title: t("Películas de estreno en " + name, "New movies on " + name),
+      title: t("Top 20 películas en " + name, "Top 20 movies on " + name),
       genre: "peliculas",
-      load: async () => items(await premieres("movie", PROV[key]), 20),
+      load: async () => items(await platformTop("movie", PROV[key]), 20),
     },
     {
       id: key + "-series",
-      title: t("Series de estreno en " + name, "New series on " + name),
+      title: t("Top 20 series en " + name, "Top 20 series on " + name),
       genre: "series",
-      load: async () => items(await premieres("series", PROV[key]), 20),
+      load: async () => items(await platformTop("series", PROV[key]), 20),
     },
   ];
   return {
@@ -202,7 +213,15 @@ async function buildRows(defs) {
     {
       id: "diagnostico",
       title: ("Sin datos. " + (errs[0] || "")).slice(0, 190),
-      items: [{ id: "d1", ref: "movie:0", title: "Reintenta en unos minutos", kind: "movie" }],
+      items: [
+        {
+          id: "d1",
+          ref: "movie:550",
+          title: "Reintenta en unos minutos",
+          kind: "movie",
+          ids: { tmdb: 550 },
+        },
+      ],
     },
   ];
 }
