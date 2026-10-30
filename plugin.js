@@ -94,9 +94,8 @@ function trending(kind) {
 }
 
 // ---------- JustWatch (el catálogo de la app de JustWatch) ----------
-// Segunda fuente: solo se usa si TMDB no trae nada o falla. Una sola consulta
-// GraphQL trae la lista completa; sus posters vienen como plantilla y hay que
-// completarlos con un tamaño y un formato.
+// Segunda fuente: se mezcla con TMDB. Una sola consulta GraphQL trae la lista
+// completa; sus posters vienen como plantilla y hay que completarlos.
 const JW = "https://apis.justwatch.com/graphql";
 const JW_IMG = "https://images.justwatch.com";
 const JW_QUERY =
@@ -208,8 +207,7 @@ async function justwatchRecent(limit) {
 }
 
 // ---------- Cinemeta (el catálogo de Stremio, hecho con datos de IMDb) ----------
-// Tercera fuente: solo se usa si TMDB y JustWatch no traen nada. No agrega
-// filas: rellena las que ya existen.
+// Tercera fuente: solo se usa si TMDB y JustWatch fallan. No agrega filas.
 const CM = "https://cinemeta-catalogs.strem.io";
 
 async function cinemeta(catalog, type, extra) {
@@ -272,8 +270,8 @@ async function cinemetaRecent(limit) {
   return csItems(all, limit);
 }
 
-// TMDB primero; si falla o vuelve vacío, JustWatch; y si tampoco, Cinemeta.
-// Si ninguna fuente trae datos, el error sube y la fila muestra su aviso.
+// Si la mezcla no trae nada, prueba la fuente de emergencia; si tampoco,
+// el error sube y la fila muestra su aviso.
 async function withFallback(primary, second, third) {
   const sources = [primary, second, third].filter(Boolean);
   for (let i = 0; i < sources.length; i++) {
@@ -286,6 +284,64 @@ async function withFallback(primary, second, third) {
     }
   }
   throw kino.error("unavailable", "ninguna fuente respondió");
+}
+
+// Para comparar títulos entre fuentes: minúsculas, sin acentos y sin signos.
+function fold(text) {
+  let s = String(text || "").toLowerCase();
+  if (typeof s.normalize === "function") s = s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  return s.replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+// Dos títulos son el mismo si comparten id de TMDB, id de IMDb o título + año.
+function itemKeys(it) {
+  const keys = [];
+  const ids = it.ids || {};
+  if (ids.tmdb > 0) keys.push("tmdb:" + ids.tmdb);
+  if (ids.imdb) keys.push("imdb:" + ids.imdb);
+  const name = fold(it.title);
+  if (name) keys.push("title:" + name + "|" + String(it.year || ""));
+  return keys;
+}
+
+// Alterna un título de cada fuente (TMDB, JustWatch, TMDB…) y salta los
+// repetidos. Si una fuente falla o viene vacía, la otra llena la fila sola.
+function mergeItems(lists, limit) {
+  const seen = new Set();
+  const out = [];
+  const at = lists.map(() => 0);
+  let progressed = true;
+  while (out.length < limit && progressed) {
+    progressed = false;
+    for (let l = 0; l < lists.length && out.length < limit; l++) {
+      const list = lists[l];
+      while (at[l] < list.length) {
+        const it = list[at[l]];
+        at[l] = at[l] + 1;
+        const keys = itemKeys(it);
+        if (keys.some((k) => seen.has(k))) continue;
+        for (const k of keys) seen.add(k);
+        out.push(it);
+        progressed = true;
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+async function mixed(first, second, limit) {
+  const lists = [];
+  for (const fn of [first, second]) {
+    try {
+      const list = await fn();
+      if (list && list.length) lists.push(list);
+      else kino.log("una fuente vino vacía, sigo con la otra");
+    } catch (e) {
+      kino.log("una fuente falló, sigo con la otra:", errText(e));
+    }
+  }
+  return mergeItems(lists, limit);
 }
 
 function recentParams(kind, providers) {
@@ -358,8 +414,13 @@ function rowDefs() {
         title: t("Estrenos de todas las plataformas", "New on every platform"),
         load: () =>
           withFallback(
-            async () => items(await estrenosTodas(), 20),
-            () => justwatchRecent(20),
+            () =>
+              mixed(
+                async () => items(await estrenosTodas(), 20),
+                () => justwatchRecent(20),
+                20
+              ),
+            null,
             () => cinemetaRecent(20)
           ),
       },
@@ -367,12 +428,17 @@ function rowDefs() {
     vistas: [
       {
         id: "top-peliculas",
-        title: t("Top 20 películas más vistas · v0.1.44", "Top 20 most watched movies · v0.1.44"),
+        title: t("Top 20 películas más vistas · v0.1.45", "Top 20 most watched movies · v0.1.45"),
         genre: "peliculas",
         load: () =>
           withFallback(
-            async () => items(await trending("movie"), 20),
-            () => justwatchItems("MOVIE", 40, 20),
+            () =>
+              mixed(
+                async () => items(await trending("movie"), 20),
+                () => justwatchItems("MOVIE", 40, 20),
+                20
+              ),
+            null,
             () => cinemetaItems("top", "movie", 20)
           ),
       },
@@ -382,8 +448,13 @@ function rowDefs() {
         genre: "series",
         load: () =>
           withFallback(
-            async () => items(await trending("series"), 20),
-            () => justwatchItems("SHOW", 40, 20),
+            () =>
+              mixed(
+                async () => items(await trending("series"), 20),
+                () => justwatchItems("SHOW", 40, 20),
+                20
+              ),
+            null,
             () => cinemetaItems("top", "series", 20)
           ),
       },
