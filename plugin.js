@@ -97,6 +97,24 @@ function premieres(kind, providers) {
   return raw(kind, "/discover/" + (isMovie ? "movie" : "tv"), params);
 }
 
+// Consulta más ligera (sin fechas): lo más popular de la plataforma.
+function topOf(kind, providers) {
+  return raw(kind, "/discover/" + (kind === "movie" ? "movie" : "tv"), {
+    watch_region: REGION,
+    with_watch_providers: providers,
+    with_watch_monetization_types: "flatrate",
+    sort_by: "popularity.desc",
+  });
+}
+
+async function platformList(kind, providers) {
+  try {
+    const list = items(await premieres(kind, providers), 20);
+    if (list.length) return list;
+  } catch (e) {}
+  return items(await topOf(kind, providers), 20);
+}
+
 function kdramas() {
   return raw("series", "/discover/tv", {
     with_origin_country: "KR",
@@ -117,15 +135,15 @@ function rowDefs() {
   const platform = (key, name) => [
     {
       id: key + "-pelis",
-      title: t("Películas de estreno en " + name, "New movies on " + name),
+      title: t("Películas en " + name, "Movies on " + name),
       genre: "peliculas",
-      load: async () => items(await premieres("movie", PROV[key]), 20),
+      load: async () => platformList("movie", PROV[key]),
     },
     {
       id: key + "-series",
-      title: t("Series de estreno en " + name, "New series on " + name),
+      title: t("Series en " + name, "Series on " + name),
       genre: "series",
-      load: async () => items(await premieres("series", PROV[key]), 20),
+      load: async () => platformList("series", PROV[key]),
     },
   ];
   return {
@@ -178,7 +196,6 @@ function rowDefs() {
   };
 }
 
-// Memoria en el aparato: respuesta rápida y respaldo si TMDB falla.
 async function cacheGet(id) {
   try {
     const v = await kino.storage.get("row:" + id);
@@ -226,14 +243,14 @@ async function buildRows(defs) {
     })
   );
   const ok = rows.filter(Boolean);
-  if (ok.length) return ok;
-  return [
-    {
-      id: "diagnostico",
-      title: ("Sin datos. " + (errs[0] || "")).slice(0, 190),
-      items: [{ id: "d1", ref: "movie:0", title: "Reintenta en unos minutos", kind: "movie" }],
-    },
-  ];
+  if (errs.length) {
+    ok.push({
+      id: "aviso",
+      title: ("Faltan filas: " + errs.slice(0, 2).join(" | ")).slice(0, 190),
+      items: [{ id: "a1", ref: "movie:0", title: "Reintenta en unos minutos", kind: "movie" }],
+    });
+  }
+  return ok;
 }
 
 export async function home() {
