@@ -94,8 +94,9 @@ function trending(kind) {
 }
 
 // ---------- JustWatch (el catálogo de la app de JustWatch) ----------
-// Una sola consulta GraphQL trae la lista completa; sus posters vienen como
-// plantilla y hay que completarlos con un tamaño y un formato.
+// Segunda fuente: solo se usa si TMDB no trae nada o falla. Una sola consulta
+// GraphQL trae la lista completa; sus posters vienen como plantilla y hay que
+// completarlos con un tamaño y un formato.
 const JW = "https://apis.justwatch.com/graphql";
 const JW_IMG = "https://images.justwatch.com";
 const JW_QUERY =
@@ -193,7 +194,7 @@ function justwatchItems(types, first, limit) {
 }
 
 // "Estrenos" de JustWatch: su lista popular trae de todo, así que nos quedamos
-// con lo que se estrenó en los últimos 45 días.
+// con lo que se estrenó en los últimos 45 días (el mismo plazo que usa TMDB).
 async function justwatchRecent(limit) {
   const nodes = await justwatch("MOVIE, SHOW", 100);
   const from = day(-45);
@@ -207,6 +208,8 @@ async function justwatchRecent(limit) {
 }
 
 // ---------- Cinemeta (el catálogo de Stremio, hecho con datos de IMDb) ----------
+// Tercera fuente: solo se usa si TMDB y JustWatch no traen nada. No agrega
+// filas: rellena las que ya existen.
 const CM = "https://cinemeta-catalogs.strem.io";
 
 async function cinemeta(catalog, type, extra) {
@@ -269,8 +272,8 @@ async function cinemetaRecent(limit) {
   return csItems(all, limit);
 }
 
-// Prueba cada fuente en orden; si una falla o viene vacía, pasa a la siguiente.
-// Si ninguna trae datos, el error sube y la fila muestra su aviso.
+// TMDB primero; si falla o vuelve vacío, JustWatch; y si tampoco, Cinemeta.
+// Si ninguna fuente trae datos, el error sube y la fila muestra su aviso.
 async function withFallback(primary, second, third) {
   const sources = [primary, second, third].filter(Boolean);
   for (let i = 0; i < sources.length; i++) {
@@ -283,6 +286,52 @@ async function withFallback(primary, second, third) {
     }
   }
   throw kino.error("unavailable", "ninguna fuente respondió");
+}
+
+function recentParams(kind, providers) {
+  const isMovie = kind === "movie";
+  const f = isMovie ? "primary_release_date" : "first_air_date";
+  const params = { sort_by: "popularity.desc" };
+  params[f + ".gte"] = day(-45);
+  params[f + ".lte"] = day(0);
+  if (providers) {
+    params.watch_region = REGION;
+    params.with_watch_providers = providers;
+    params.with_watch_monetization_types = "flatrate";
+  } else {
+    // Sin filtro de plataforma: solo títulos con algo de votos, para no llenar
+    // la fila de estrenos sin estrenar de verdad.
+    params["vote_count.gte"] = 5;
+  }
+  return params;
+}
+
+// Primero pregunta por las plataformas. Si esa consulta falla o vuelve vacía
+// (es la que no funcionaba en el televisor), pregunta por estrenos en general:
+// así la fila siempre trae algo en vez de desaparecer.
+async function premieres(kind, providers) {
+  const path = "/discover/" + (kind === "movie" ? "movie" : "tv");
+  try {
+    const list = await raw(kind, path, recentParams(kind, providers));
+    if (list.length) return list;
+    kino.log("estrenos sin resultados por plataforma:", kind);
+  } catch (e) {
+    kino.log("estrenos falló por plataforma:", kind, errText(e));
+  }
+  if (!providers) return [];
+  return raw(kind, path, recentParams(kind, null));
+}
+
+// Una sola fila de estrenos: películas y series de todas las plataformas,
+// mezcladas por lo más popular.
+async function estrenosTodas() {
+  const [movies, series] = await Promise.all([
+    premieres("movie", PROV.todas),
+    premieres("series", PROV.todas),
+  ]);
+  const all = movies.concat(series);
+  all.sort((a, b) => (b.r.popularity || 0) - (a.r.popularity || 0));
+  return all;
 }
 
 function kdramas() {
@@ -309,6 +358,7 @@ function rowDefs() {
         title: t("Estrenos de todas las plataformas", "New on every platform"),
         load: () =>
           withFallback(
+            async () => items(await estrenosTodas(), 20),
             () => justwatchRecent(20),
             () => cinemetaRecent(20)
           ),
