@@ -1,5 +1,5 @@
-// DIAGNÓSTICO 2 de Top Streaming 2.0 (versión 0.1.15).
-// El resultado aparece como NOMBRE de dos títulos en la categoría «Películas».
+// DIAGNÓSTICO 3 de Top Streaming 2.0 (versión 0.1.16).
+// Muestra, como nombre de tres títulos, qué pasa con la API de TMDB y con sus imágenes.
 
 function card(id, title) {
   return {
@@ -11,33 +11,50 @@ function card(id, title) {
   };
 }
 
+async function waitMs(total) {
+  let left = total;
+  while (left > 0) {
+    const step = Math.min(5000, left);
+    await kino.sleep(step);
+    left -= step;
+  }
+  return "timeout";
+}
+
+async function testApi() {
+  try {
+    if (typeof kino.tmdb !== "function") return "kino.tmdb NO existe";
+    const t0 = Date.now();
+    const r = await Promise.race([kino.tmdb("/configuration", {}), waitMs(18000)]);
+    if (r === "timeout") return "API de TMDB: sin respuesta en 18 s";
+    return "API de TMDB OK en " + (Date.now() - t0) + " ms";
+  } catch (e) {
+    return "API de TMDB error: " + ((e && e.code) || "?") + " " + String((e && e.message) || "").slice(0, 50);
+  }
+}
+
+async function testImages() {
+  try {
+    const t0 = Date.now();
+    const r = await Promise.race([kino.fetch("https://image.tmdb.org/t/p/w92/", { timeoutMs: 8000 }), waitMs(9000)]);
+    if (r === "timeout") return "Imágenes de TMDB: sin respuesta en 9 s";
+    return "Imágenes de TMDB responden (código " + ((r && r.status) || "?") + ") en " + (Date.now() - t0) + " ms";
+  } catch (e) {
+    return "Imágenes de TMDB error: " + ((e && e.code) || "?") + " " + String((e && e.message) || "").slice(0, 50);
+  }
+}
+
 export async function home() {
   await null;
-  const first = card("diag-1", "1) Plugin OK · Kino " + kino.appVersion + " · api " + kino.apiVersion);
-
-  let status;
-  try {
-    if (typeof kino.tmdb !== "function") {
-      status = "2) kino.tmdb NO existe: Kino es muy viejo";
-    } else {
-      const t0 = Date.now();
-      const timeout = (async () => {
-        await kino.sleep(5000);
-        await kino.sleep(5000);
-        return "timeout";
-      })();
-      const r = await Promise.race([kino.tmdb("/trending/movie/day", { language: "es-MX", page: "1" }), timeout]);
-      if (r === "timeout") {
-        status = "2) TMDB no respondió en 10 s";
-      } else {
-        status = "2) TMDB OK: " + ((r && r.results) || []).length + " títulos en " + (Date.now() - t0) + " ms";
-      }
-    }
-  } catch (e) {
-    status = "2) TMDB error: " + ((e && e.code) || "?") + " " + String((e && e.message) || "").slice(0, 60);
-  }
-
-  return [{ id: "diag", title: "Diagnóstico", genre: "peliculas", items: [first, card("diag-2", status)] }];
+  const [api, img] = await Promise.all([testApi(), testImages()]);
+  return [
+    {
+      id: "diag",
+      title: "Diagnóstico",
+      genre: "peliculas",
+      items: [card("diag-1", "1) Kino " + kino.appVersion + " · api " + kino.apiVersion), card("diag-2", "2) " + api), card("diag-3", "3) " + img)],
+    },
+  ];
 }
 
 export async function episodes(ref) {
