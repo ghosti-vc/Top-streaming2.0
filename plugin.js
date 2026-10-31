@@ -188,12 +188,6 @@ function rowDefs() {
         genre: "series",
         load: async () => items(await trending("series"), 20),
       },
-      {
-        id: "top-cinemeta",
-        title: t("Películas populares (Cinemeta)", "Popular movies (Cinemeta)"),
-        genre: "peliculas",
-        load: async () => cinemetaTop(),
-      },
     ],
     netflix: platform("netflix", "Netflix"),
     prime: platform("prime", "Prime Video"),
@@ -211,6 +205,14 @@ function rowDefs() {
         title: t("Top 20 series turcas", "Top 20 Turkish series"),
         genre: "series",
         load: async () => items(await turcas(), 20),
+      },
+    ],
+    cinemeta: [
+      {
+        id: "top-cinemeta",
+        title: t("Películas populares (Cinemeta)", "Popular movies (Cinemeta)"),
+        genre: "peliculas",
+        load: async () => cinemetaTop(),
       },
     ],
   };
@@ -263,6 +265,7 @@ export async function section({ tab }) {
     { id: "prime", label: "Prime Video" },
     { id: "kdramas", label: "K-dramas" },
     { id: "turcas", label: t("Series turcas", "Turkish series") },
+    { id: "cinemeta", label: "Cinemeta" },
   ];
   const chosen = tabs.some((x) => x.id === tab) ? tab : "vistas";
   return { tabs, tab: chosen, rows: await buildRows(all[chosen]) };
