@@ -240,7 +240,7 @@ async function buildRows(defs) {
   return [
     {
       id: "diagnostico",
-      title: ("Sin datos. " + (errs[0] || "")).slice(0, 190),
+      title: ("Sin datos. " + errs.join(" | ")).slice(0, 190),
       items: [{ id: "d1", ref: "movie:0", title: "Reintenta en unos minutos", kind: "movie" }],
     },
   ];
