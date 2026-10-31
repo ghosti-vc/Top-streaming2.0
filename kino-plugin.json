@@ -4,7 +4,7 @@
   "version": "0.1.14",
   "apiVersion": 8,
   "entry": "plugin.js",
-  "icon": "icon.png",
+  "icon": "",
   "description": "Estrenos y lo más visto de Netflix, Prime Video, Disney+, HBO Max y Apple TV+, más K-dramas. Top 10 por fila. Solo catálogo.",
   "hosts": ["image.tmdb.org"],
   "capabilities": ["home", "episodes", "resolve"],
