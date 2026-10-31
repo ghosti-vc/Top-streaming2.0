@@ -1,29 +1,24 @@
-// DIAGNÓSTICO de Top Streaming 2.0 (versión 0.1.14).
-// No carga catálogo: muestra la versión de Kino y el resultado de UNA consulta a TMDB.
+// DIAGNÓSTICO 2 de Top Streaming 2.0 (versión 0.1.15).
+// El resultado aparece como NOMBRE de dos títulos en la categoría «Películas».
 
-const SAMPLE = {
-  id: "m-10378",
-  ref: JSON.stringify({ kind: "movie", id: 10378 }),
-  title: "Big Buck Bunny",
-  kind: "movie",
-  genres: ["peliculas"],
-  ids: { tmdb: 10378 },
-};
-
-function row(id, title) {
-  return { id, title: String(title).slice(0, 120), genre: "peliculas", items: [SAMPLE] };
+function card(id, title) {
+  return {
+    id,
+    ref: JSON.stringify({ kind: "movie", id }),
+    title: String(title).slice(0, 150),
+    kind: "movie",
+    genres: ["peliculas"],
+  };
 }
 
 export async function home() {
   await null;
-  const rows = [
-    row("diag-version", "1) El plugin arrancó · Kino " + kino.appVersion + " · api " + kino.apiVersion + " · idioma " + kino.lang),
-  ];
+  const first = card("diag-1", "1) Plugin OK · Kino " + kino.appVersion + " · api " + kino.apiVersion);
 
   let status;
   try {
     if (typeof kino.tmdb !== "function") {
-      status = "2) kino.tmdb NO existe: Kino es muy viejo (hace falta 0.9.53 o más)";
+      status = "2) kino.tmdb NO existe: Kino es muy viejo";
     } else {
       const t0 = Date.now();
       const timeout = (async () => {
@@ -39,10 +34,10 @@ export async function home() {
       }
     }
   } catch (e) {
-    status = "2) TMDB error: " + ((e && e.code) || "?") + " · " + String((e && e.message) || "").slice(0, 70);
+    status = "2) TMDB error: " + ((e && e.code) || "?") + " " + String((e && e.message) || "").slice(0, 60);
   }
-  rows.push(row("diag-tmdb", status));
-  return rows;
+
+  return [{ id: "diag", title: "Diagnóstico", genre: "peliculas", items: [first, card("diag-2", status)] }];
 }
 
 export async function episodes(ref) {
