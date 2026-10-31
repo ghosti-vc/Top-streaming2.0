@@ -36,39 +36,6 @@ async function tmdb(path, params) {
   return data;
 }
 
-async function cinemetaTop() {
-  await null;
-  const key = "cinemeta-top";
-  const hit = memo.get(key);
-  if (hit && Date.now() - hit.at < TTL_MS) return hit.data;
-  const res = await kino.fetch("https://v3-cinemeta.strem.io/catalog/movie/top.json");
-  const data =
-    typeof res.json === "function" ? await res.json() : JSON.parse(res.body || res.text);
-  const metas = data && Array.isArray(data.metas) ? data.metas : [];
-  const out = metas
-    .map((m) => {
-      if (!m || !m.id || !m.name) return null;
-      const it = {
-        id: "c" + m.id,
-        ref: "movie:" + m.id,
-        title: String(m.name).slice(0, 200),
-        kind: "movie",
-        ids: { imdb: m.imdb_id || m.id },
-      };
-      const y = String(m.releaseInfo || m.year || "").slice(0, 4);
-      if (/^\d{4}$/.test(y)) it.year = y;
-      if (m.poster) it.poster = m.poster;
-      if (m.background) it.backdrop = m.background;
-      if (m.description) it.overview = String(m.description).slice(0, 2000);
-      if (Number(m.imdbRating) > 0) it.rating = Number(m.imdbRating);
-      return it;
-    })
-    .filter(Boolean)
-    .slice(0, 20);
-  memo.set(key, { at: Date.now(), data: out });
-  return out;
-}
-
 function day(offsetDays) {
   return new Date(Date.now() + offsetDays * 86400000).toISOString().slice(0, 10);
 }
@@ -207,47 +174,34 @@ function rowDefs() {
         load: async () => items(await turcas(), 20),
       },
     ],
-    cinemeta: [
-      {
-        id: "top-cinemeta",
-        title: t("Películas populares (Cinemeta)", "Popular movies (Cinemeta)"),
-        genre: "peliculas",
-        load: async () => cinemetaTop(),
-      },
-    ],
   };
 }
 
-async function buildRows(defs, limit) {
+async function buildRows(defs) {
   const errs = [];
-  const results = new Array(defs.length).fill(null);
-  let next = 0;
-  async function worker() {
-    while (next < defs.length) {
-      const i = next++;
-      const d = defs[i];
+  const rows = await Promise.all(
+    defs.map(async (d) => {
       try {
         const list = await d.load();
         if (!list.length) {
           errs.push(d.id + ": vacia");
-          continue;
+          return null;
         }
         const row = { id: d.id, title: d.title, items: list };
         if (d.genre) row.genre = d.genre;
-        results[i] = row;
+        return row;
       } catch (e) {
         errs.push(d.id + ": " + errText(e));
+        return null;
       }
-    }
-  }
-  const n = Math.min(limit || 3, defs.length);
-  await Promise.all(Array.from({ length: n }, worker));
-  const ok = results.filter(Boolean);
+    })
+  );
+  const ok = rows.filter(Boolean);
   if (ok.length) return ok;
   return [
     {
       id: "diagnostico",
-      title: ("Sin datos. " + errs.join(" | ")).slice(0, 190),
+      title: ("Sin datos. " + (errs[0] || "")).slice(0, 190),
       items: [{ id: "d1", ref: "movie:0", title: "Reintenta en unos minutos", kind: "movie" }],
     },
   ];
@@ -255,10 +209,10 @@ async function buildRows(defs, limit) {
 
 export async function home() {
   const all = rowDefs();
-  const order = ["vistas", "estrenos", "kdramas"];
+  const order = ["vistas", "estrenos", "netflix", "prime", "kdramas", "turcas"];
   const defs = [];
   for (const k of order) defs.push(...all[k]);
-  return buildRows(defs, 3);
+  return buildRows(defs);
 }
 
 export async function section({ tab }) {
@@ -270,10 +224,9 @@ export async function section({ tab }) {
     { id: "prime", label: "Prime Video" },
     { id: "kdramas", label: "K-dramas" },
     { id: "turcas", label: t("Series turcas", "Turkish series") },
-    { id: "cinemeta", label: "Cinemeta" },
   ];
   const chosen = tabs.some((x) => x.id === tab) ? tab : "vistas";
-  return { tabs, tab: chosen, rows: await buildRows(all[chosen], 2) };
+  return { tabs, tab: chosen, rows: await buildRows(all[chosen]) };
 }
 
 export async function episodes(ref) {
