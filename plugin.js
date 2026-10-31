@@ -17,7 +17,6 @@ const PLATFORMS = [
   { id: "prime", name: "Prime Video", ids: "119" },
   { id: "disney", name: "Disney+", ids: "337" },
   { id: "hbo", name: "HBO Max", ids: "384|1899" },
-  { id: "apple", name: "Apple TV+", ids: "350" },
 ];
 
 const english = () => kino.lang === "en-US";
@@ -223,25 +222,47 @@ async function platformRow(p, type) {
   };
 }
 
+// Kino corta el Inicio a los 20 s. Esperamos máximo 14 s y entregamos las filas que ya llegaron.
+const DEADLINE_STEPS_MS = [5000, 5000, 4000];
+
 async function build() {
-  const jobs = [trendingRows(), estrenosRow(), netflixNewRows(), kdramaRow()];
+  // Orden = prioridad (Kino solo corre ~6 peticiones a la vez).
+  const jobs = [trendingRows(), estrenosRow(), kdramaRow()];
   for (const p of PLATFORMS) {
     jobs.push(platformRow(p, "movie"));
     jobs.push(platformRow(p, "tv"));
   }
+  const done = new Array(jobs.length).fill(null);
   let firstError = null;
-  const results = await Promise.all(
-    jobs.map((job) =>
-      job.catch((e) => {
-        if (!firstError) firstError = e;
-        kino.log("top-streaming: una fila falló", (e && e.code) || "error");
-        return null;
-      })
+  let finished = 0;
+  const all = Promise.all(
+    jobs.map((job, i) =>
+      job
+        .then((r) => {
+          done[i] = r;
+        })
+        .catch((e) => {
+          if (!firstError) firstError = e;
+          kino.log("top-streaming: una fila falló", (e && e.code) || "error");
+        })
+        .then(() => {
+          finished++;
+        })
     )
   );
-  const rows = [].concat(...results.map((r) => (Array.isArray(r) ? r : [r]))).filter((r) => r && r.items && r.items.length);
-  if (!rows.length) throw firstError || kino.error("unavailable", "TMDB no devolvió títulos");
-  return rows.slice(0, 20); // Kino acepta máximo 20 filas
+  const deadline = (async () => {
+    for (const ms of DEADLINE_STEPS_MS) await kino.sleep(ms);
+  })();
+  await Promise.race([all, deadline]);
+  const complete = finished === jobs.length;
+  const rows = [].concat(...done.map((r) => (Array.isArray(r) ? r : [r]))).filter((r) => r && r.items && r.items.length);
+  if (!rows.length) {
+    kino.log("top-streaming: sin filas", complete ? "completo" : "tiempo agotado");
+    throw firstError || kino.error("timeout", "TMDB tardó demasiado", {
+      userMessage: "TMDB no respondió. Revisa tu conexión e inténtalo de nuevo.",
+    });
+  }
+  return { rows: rows.slice(0, 20), complete }; // Kino acepta máximo 20 filas
 }
 
 export async function home() {
@@ -250,9 +271,10 @@ export async function home() {
   const cached = await readJSON("home:" + scope);
   if (cached) return cached;
   try {
-    const rows = await build();
+    const { rows, complete } = await build();
     const text = JSON.stringify(rows);
-    kino.storage.set("home:" + scope, text, { ttlMs: CACHE_MS });
+    // Si faltaron filas, se guarda solo 2 minutos para que se completen pronto.
+    kino.storage.set("home:" + scope, text, { ttlMs: complete ? CACHE_MS : 2 * 60 * 1000 });
     kino.storage.set("last:" + scope, text);
     return rows;
   } catch (e) {
