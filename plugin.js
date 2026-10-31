@@ -218,26 +218,31 @@ function rowDefs() {
   };
 }
 
-async function buildRows(defs) {
+async function buildRows(defs, limit) {
   const errs = [];
-  const rows = await Promise.all(
-    defs.map(async (d) => {
+  const results = new Array(defs.length).fill(null);
+  let next = 0;
+  async function worker() {
+    while (next < defs.length) {
+      const i = next++;
+      const d = defs[i];
       try {
         const list = await d.load();
         if (!list.length) {
           errs.push(d.id + ": vacia");
-          return null;
+          continue;
         }
         const row = { id: d.id, title: d.title, items: list };
         if (d.genre) row.genre = d.genre;
-        return row;
+        results[i] = row;
       } catch (e) {
         errs.push(d.id + ": " + errText(e));
-        return null;
       }
-    })
-  );
-  const ok = rows.filter(Boolean);
+    }
+  }
+  const n = Math.min(limit || 3, defs.length);
+  await Promise.all(Array.from({ length: n }, worker));
+  const ok = results.filter(Boolean);
   if (ok.length) return ok;
   return [
     {
@@ -250,10 +255,10 @@ async function buildRows(defs) {
 
 export async function home() {
   const all = rowDefs();
-  const order = ["vistas", "estrenos", "netflix", "prime", "kdramas", "turcas"];
+  const order = ["vistas", "estrenos", "kdramas"];
   const defs = [];
   for (const k of order) defs.push(...all[k]);
-  return buildRows(defs);
+  return buildRows(defs, 3);
 }
 
 export async function section({ tab }) {
@@ -268,7 +273,7 @@ export async function section({ tab }) {
     { id: "cinemeta", label: "Cinemeta" },
   ];
   const chosen = tabs.some((x) => x.id === tab) ? tab : "vistas";
-  return { tabs, tab: chosen, rows: await buildRows(all[chosen]) };
+  return { tabs, tab: chosen, rows: await buildRows(all[chosen], 2) };
 }
 
 export async function episodes(ref) {
