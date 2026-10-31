@@ -1,31 +1,12 @@
 {
   "id": "top-streaming-2",
   "name": "Top Streaming 2.0",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "apiVersion": 8,
   "entry": "plugin.js",
-  "icon": "",
-  "description": "Estrenos y lo más visto de Netflix, Prime Video, Disney+, HBO Max y Apple TV+, más K-dramas. Top 10 por fila. Solo catálogo.",
+  "description": "Estrenos y lo más visto de Netflix y Prime Video, más los K-dramas y las series turcas del momento. Solo catálogo.",
   "hosts": ["image.tmdb.org"],
   "capabilities": ["home", "episodes", "resolve"],
   "catalogOnly": true,
-  "settings": [
-    {
-      "key": "region",
-      "type": "select",
-      "label": "País",
-      "labelEn": "Country",
-      "default": "MX",
-      "options": [
-        { "value": "MX", "label": "México" },
-        { "value": "CO", "label": "Colombia" },
-        { "value": "AR", "label": "Argentina" },
-        { "value": "CL", "label": "Chile" },
-        { "value": "PE", "label": "Perú" },
-        { "value": "EC", "label": "Ecuador" },
-        { "value": "ES", "label": "España" },
-        { "value": "US", "label": "Estados Unidos" }
-      ]
-    }
-  ]
+  "section": { "label": "Top Streaming" }
 }
