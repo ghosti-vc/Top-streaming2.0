@@ -177,98 +177,12 @@ function rowDefs() {
   };
 }
 
-function norm(s) {
-  let x = String(s || "").toLowerCase();
-  if (typeof x.normalize === "function") x = x.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  return x.replace(/[^a-z0-9]+/g, " ").trim();
-}
-
-async function loadWatched() {
-  await null;
-  const out = { map: null, err: "", n: 0 };
-  if (typeof kino.library !== "object") {
-    out.err = "sin_library";
-    return out;
-  }
-  const map = new Map();
-  try {
-    for (const k of ["movie", "series"]) {
-      const list = await kino.library.watched({ limit: 100, kind: k });
-      for (const e of list || []) {
-        if (!e) continue;
-        out.n++;
-        if (e.ids && e.ids.tmdb) map.set(e.kind + ":" + e.ids.tmdb, e);
-        if (e.title) map.set(e.kind + ":t:" + norm(e.title), e);
-      }
-    }
-  } catch (e) {
-    out.err = (e && e.code) || "error";
-    return out;
-  }
-  out.map = map;
-  return out;
-}
-
-function hint(w) {
-  if (w.err === "permission_denied") return " ⚠ permiso de biblioteca apagado";
-  if (w.err) return " ⚠ biblioteca: " + w.err;
-  if (w.n === 0) return " ⚠ biblioteca vacía";
-  return "";
-}
-
-async function statusOf(it, e) {
-  const p = Number(e.progress) || 0;
-  if (it.kind === "movie") {
-    if (p >= 0.95) return { done: true };
-    if (p > 0) return { text: t("Seguir viendo", "Keep watching") };
-    return null;
-  }
-  const s = e.season;
-  const n = e.episode;
-  if (!s || !n) return p >= 0.95 ? null : { text: t("Seguir viendo", "Keep watching") };
-  let last = null;
-  try {
-    const d = await tmdb("/tv/" + it.ids.tmdb, {});
-    last = d && d.last_episode_to_air;
-  } catch (err) {
-    last = null;
-  }
-  if (last && last.season_number === s && n >= last.episode_number && p >= 0.95) {
-    return { done: true };
-  }
-  const where = "T" + s + " · Cap. " + n;
-  if (p >= 0.95) {
-    return { text: t("Seguir viendo · terminaste " + where, "Keep watching · finished S" + s + " · Ep. " + n) };
-  }
-  return { text: t("Seguir viendo · " + where, "Keep watching · S" + s + " · Ep. " + n) };
-}
-
-async function mark(list, watched) {
-  if (!watched) return list;
-  return Promise.all(
-    list.map(async (it) => {
-      const e =
-        watched.get(it.kind + ":" + it.ids.tmdb) ||
-        watched.get(it.kind + ":t:" + norm(it.title));
-      if (!e) return it;
-      const st = await statusOf(it, e);
-      if (!st) return it;
-      const label = st.done ? t("Visto", "Watched") : st.text;
-      it.title = (st.done ? "✅ " : "▶ ") + it.title;
-      it.overview = (label + (it.overview ? "\n\n" + it.overview : "")).slice(0, 2000);
-      return it;
-    })
-  );
-}
-
 async function buildRows(defs) {
   const errs = [];
-  const w = await loadWatched();
   const rows = await Promise.all(
     defs.map(async (d) => {
       try {
-        let list = await d.load();
-        list = await mark(list, w.map);
+        const list = await d.load();
         if (!list.length) {
           errs.push(d.id + ": vacia");
           return null;
@@ -283,11 +197,7 @@ async function buildRows(defs) {
     })
   );
   const ok = rows.filter(Boolean);
-  if (ok.length) {
-    const note = hint(w);
-    if (note) ok[0].title = (ok[0].title + note).slice(0, 190);
-    return ok;
-  }
+  if (ok.length) return ok;
   return [
     {
       id: "diagnostico",
