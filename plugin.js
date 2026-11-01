@@ -112,32 +112,72 @@ function turcas() {
   });
 }
 
+async function paraTi() {
+  await null;
+  if (typeof kino.library !== "object") return [];
+  let seen = [];
+  try {
+    seen = (await kino.library.watched({ limit: 30 })) || [];
+  } catch (e) {
+    return [];
+  }
+  const valid = seen.filter((e) => e && e.ids && e.ids.tmdb);
+  if (!valid.length) return [];
+  const watchedKeys = new Set(valid.map((e) => e.kind + ":" + e.ids.tmdb));
+  const base = valid.slice(0, 6);
+  const lists = await Promise.all(
+    base.map(async (e) => {
+      const kind = e.kind === "movie" ? "movie" : "series";
+      try {
+        return await raw(kind, "/" + (kind === "movie" ? "movie" : "tv") + "/" + e.ids.tmdb + "/recommendations", {});
+      } catch (err) {
+        return [];
+      }
+    })
+  );
+  const mixed = [];
+  const max = Math.max(0, ...lists.map((l) => l.length));
+  for (let i = 0; i < max; i++) {
+    for (const l of lists) {
+      if (l[i] && !watchedKeys.has(l[i].kind + ":" + l[i].r.id)) mixed.push(l[i]);
+    }
+  }
+  return items(mixed, 20);
+}
+
 function rowDefs() {
   const platform = (key, name) => [
     {
       id: key + "-pelis",
-      title: t("Películas de estreno en " + name, "New movies on " + name),
+      title: t(name + ": Películas", name + ": Movies"),
       genre: "peliculas",
       load: async () => items(await premieres("movie", PROV[key]), 20),
     },
     {
       id: key + "-series",
-      title: t("Series de estreno en " + name, "New series on " + name),
+      title: t(name + ": Series", name + ": Series"),
       genre: "series",
       load: async () => items(await premieres("series", PROV[key]), 20),
     },
   ];
   return {
+    parati: [
+      {
+        id: "para-ti",
+        title: t("Para Ti", "For You"),
+        load: async () => paraTi(),
+      },
+    ],
     estrenos: [
       {
         id: "estrenos-pelis",
-        title: t("Películas de estreno", "New movies"),
+        title: t("Estrenos: Películas", "New: Movies"),
         genre: "peliculas",
         load: async () => items(await premieres("movie", PROV.todas), 20),
       },
       {
         id: "estrenos-series",
-        title: t("Series de estreno", "New series"),
+        title: t("Estrenos: Series", "New: Series"),
         genre: "series",
         load: async () => items(await premieres("series", PROV.todas), 20),
       },
@@ -145,13 +185,13 @@ function rowDefs() {
     vistas: [
       {
         id: "top-peliculas",
-        title: t("Top 20 películas más vistas", "Top 20 most watched movies"),
+        title: t("Top 20: Películas", "Top 20: Movies"),
         genre: "peliculas",
         load: async () => items(await trending("movie"), 20),
       },
       {
         id: "top-series",
-        title: t("Top 20 series más vistas", "Top 20 most watched series"),
+        title: t("Top 20: Series", "Top 20: Series"),
         genre: "series",
         load: async () => items(await trending("series"), 20),
       },
@@ -161,7 +201,7 @@ function rowDefs() {
     kdramas: [
       {
         id: "top-kdramas",
-        title: t("Top 20 K-dramas más vistos", "Top 20 most watched K-dramas"),
+        title: t("Top 20: K-Dramas", "Top 20: K-Dramas"),
         genre: "doramas",
         load: async () => items(await kdramas(), 20),
       },
@@ -169,7 +209,7 @@ function rowDefs() {
     turcas: [
       {
         id: "top-turcas",
-        title: t("Top 20 series turcas", "Top 20 Turkish series"),
+        title: t("Top 20: Series Turcas", "Top 20: Turkish Series"),
         genre: "series",
         load: async () => items(await turcas(), 20),
       },
@@ -209,7 +249,7 @@ async function buildRows(defs) {
 
 export async function home() {
   const all = rowDefs();
-  const order = ["vistas", "estrenos", "netflix", "prime", "kdramas", "turcas"];
+  const order = ["parati", "vistas", "estrenos", "netflix", "prime", "kdramas", "turcas"];
   const defs = [];
   for (const k of order) defs.push(...all[k]);
   return buildRows(defs);
