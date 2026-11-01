@@ -185,21 +185,35 @@ function norm(s) {
 
 async function loadWatched() {
   await null;
-  if (typeof kino.library !== "object") return null;
+  const out = { map: null, err: "", n: 0 };
+  if (typeof kino.library !== "object") {
+    out.err = "sin_library";
+    return out;
+  }
   const map = new Map();
   try {
     for (const k of ["movie", "series"]) {
       const list = await kino.library.watched({ limit: 100, kind: k });
       for (const e of list || []) {
         if (!e) continue;
+        out.n++;
         if (e.ids && e.ids.tmdb) map.set(e.kind + ":" + e.ids.tmdb, e);
         if (e.title) map.set(e.kind + ":t:" + norm(e.title), e);
       }
     }
   } catch (e) {
-    return null;
+    out.err = (e && e.code) || "error";
+    return out;
   }
-  return map;
+  out.map = map;
+  return out;
+}
+
+function hint(w) {
+  if (w.err === "permission_denied") return " ⚠ permiso de biblioteca apagado";
+  if (w.err) return " ⚠ biblioteca: " + w.err;
+  if (w.n === 0) return " ⚠ biblioteca vacía";
+  return "";
 }
 
 async function statusOf(it, e) {
@@ -249,12 +263,12 @@ async function mark(list, watched) {
 
 async function buildRows(defs) {
   const errs = [];
-  const watched = await loadWatched();
+  const w = await loadWatched();
   const rows = await Promise.all(
     defs.map(async (d) => {
       try {
         let list = await d.load();
-        list = await mark(list, watched);
+        list = await mark(list, w.map);
         if (!list.length) {
           errs.push(d.id + ": vacia");
           return null;
@@ -269,7 +283,11 @@ async function buildRows(defs) {
     })
   );
   const ok = rows.filter(Boolean);
-  if (ok.length) return ok;
+  if (ok.length) {
+    const note = hint(w);
+    if (note) ok[0].title = (ok[0].title + note).slice(0, 190);
+    return ok;
+  }
   return [
     {
       id: "diagnostico",
