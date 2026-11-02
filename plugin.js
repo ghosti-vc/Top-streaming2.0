@@ -112,39 +112,6 @@ function turcas() {
   });
 }
 
-async function paraTi() {
-  await null;
-  if (typeof kino.library !== "object") return [];
-  let seen = [];
-  try {
-    seen = (await kino.library.watched({ limit: 30 })) || [];
-  } catch (e) {
-    return [];
-  }
-  const valid = seen.filter((e) => e && e.ids && e.ids.tmdb);
-  if (!valid.length) return [];
-  const watchedKeys = new Set(valid.map((e) => e.kind + ":" + e.ids.tmdb));
-  const base = valid.slice(0, 6);
-  const lists = await Promise.all(
-    base.map(async (e) => {
-      const kind = e.kind === "movie" ? "movie" : "series";
-      try {
-        return await raw(kind, "/" + (kind === "movie" ? "movie" : "tv") + "/" + e.ids.tmdb + "/recommendations", {});
-      } catch (err) {
-        return [];
-      }
-    })
-  );
-  const mixed = [];
-  const max = Math.max(0, ...lists.map((l) => l.length));
-  for (let i = 0; i < max; i++) {
-    for (const l of lists) {
-      if (l[i] && !watchedKeys.has(l[i].kind + ":" + l[i].r.id)) mixed.push(l[i]);
-    }
-  }
-  return items(mixed, 20);
-}
-
 function rowDefs() {
   const platform = (key, name) => [
     {
@@ -161,13 +128,6 @@ function rowDefs() {
     },
   ];
   return {
-    parati: [
-      {
-        id: "para-ti",
-        title: t("Para Ti", "For You"),
-        load: async () => paraTi(),
-      },
-    ],
     estrenos: [
       {
         id: "estrenos-pelis",
@@ -249,7 +209,7 @@ async function buildRows(defs) {
 
 export async function home() {
   const all = rowDefs();
-  const order = ["parati", "vistas", "estrenos", "netflix", "prime", "kdramas", "turcas"];
+  const order = ["vistas", "estrenos", "netflix", "prime", "kdramas", "turcas"];
   const defs = [];
   for (const k of order) defs.push(...all[k]);
   return buildRows(defs);
