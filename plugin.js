@@ -112,6 +112,78 @@ function turcas() {
   });
 }
 
+/* ---------- Para Ti ---------- */
+
+// Lee el historial de lo que viste. Prueba kino.history y kino.storage;
+// si la app no ofrece ninguno, devuelve [] y la fila usa lo popular.
+async function readHistory() {
+  try {
+    let h = null;
+    if (kino.history && typeof kino.history.list === "function") {
+      h = await kino.history.list();
+    } else if (kino.storage && typeof kino.storage.get === "function") {
+      h = await kino.storage.get("history");
+    }
+    if (!Array.isArray(h)) return [];
+    const out = [];
+    for (const e of h) {
+      let kind = e && e.kind;
+      let id = e && ((e.ids && e.ids.tmdb) || e.tmdb);
+      const ref = e && typeof e.ref === "string" ? e.ref : "";
+      const m = /^(movie|tv):(\d+)$/.exec(ref);
+      if (m) {
+        kind = m[1] === "movie" ? "movie" : "series";
+        id = Number(m[2]);
+      }
+      if (kind === "tv") kind = "series";
+      if ((kind === "movie" || kind === "series") && id) out.push({ kind, id: Number(id) });
+    }
+    return out;
+  } catch (e) {
+    return [];
+  }
+}
+
+async function paraTi() {
+  const hist = await readHistory();
+  const seen = new Set(hist.map((h) => h.kind + ":" + h.id));
+  // los 6 más recientes (asumiendo que el historial viene del más nuevo al más viejo)
+  const seeds = [];
+  const seedKeys = new Set();
+  for (const h of hist) {
+    const k = h.kind + ":" + h.id;
+    if (seedKeys.has(k)) continue;
+    seedKeys.add(k);
+    seeds.push(h);
+    if (seeds.length >= 6) break;
+  }
+  let lists = [];
+  if (seeds.length) {
+    const res = await Promise.all(
+      seeds.map((s) =>
+        raw(s.kind, "/" + (s.kind === "movie" ? "movie" : "tv") + "/" + s.id + "/recommendations", {}).catch(
+          () => []
+        )
+      )
+    );
+    // mezcla una de cada lista para variar
+    const max = Math.max(...res.map((l) => l.length));
+    for (let i = 0; i < max; i++) for (const l of res) if (l[i]) lists.push(l[i]);
+  }
+  lists = lists.filter((x) => !seen.has(x.kind + ":" + x.r.id));
+  if (lists.length < 10) {
+    // sin historial o pocas recomendaciones: completa con lo popular
+    const [m, s] = await Promise.all([trending("movie"), trending("series")]);
+    const fill = [];
+    for (let i = 0; i < Math.max(m.length, s.length); i++) {
+      if (m[i]) fill.push(m[i]);
+      if (s[i]) fill.push(s[i]);
+    }
+    lists = lists.concat(fill.filter((x) => !seen.has(x.kind + ":" + x.r.id)));
+  }
+  return items(lists, 20);
+}
+
 function rowDefs() {
   const platform = (key, name) => [
     {
@@ -128,6 +200,13 @@ function rowDefs() {
     },
   ];
   return {
+    parati: [
+      {
+        id: "para-ti",
+        title: t("Para Ti", "For You"),
+        load: async () => await paraTi(),
+      },
+    ],
     estrenos: [
       {
         id: "estrenos-pelis",
@@ -209,7 +288,7 @@ async function buildRows(defs) {
 
 export async function home() {
   const all = rowDefs();
-  const order = ["vistas", "estrenos", "netflix", "prime", "kdramas", "turcas"];
+  const order = ["parati", "vistas", "estrenos", "netflix", "prime", "kdramas", "turcas"];
   const defs = [];
   for (const k of order) defs.push(...all[k]);
   return buildRows(defs);
@@ -218,6 +297,7 @@ export async function home() {
 export async function section({ tab }) {
   const all = rowDefs();
   const tabs = [
+    { id: "parati", label: t("Para Ti", "For You") },
     { id: "vistas", label: t("Más vistas", "Most watched") },
     { id: "estrenos", label: t("Estrenos", "New") },
     { id: "netflix", label: "Netflix" },
