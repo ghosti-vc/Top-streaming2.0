@@ -136,12 +136,41 @@ async function readHistory() {
         id = Number(m[2]);
       }
       if (kind === "tv") kind = "series";
-      if ((kind === "movie" || kind === "series") && id) out.push({ kind, id: Number(id) });
+      if ((kind === "movie" || kind === "series") && id) out.push({ kind, id: Number(id), p: progressOf(e) });
     }
     return out;
   } catch (e) {
     return [];
   }
+}
+
+// Progreso de 0 a 1. Sin datos de progreso, cuenta como visto (1).
+function progressOf(e) {
+  if (!e) return 1;
+  if (e.watched === true || e.completed === true || e.finished === true) return 1;
+  if (typeof e.progress === "number") return e.progress > 1 ? e.progress / 100 : e.progress;
+  const pos = Number(e.position || e.positionMs || e.time || 0);
+  const dur = Number(e.duration || e.durationMs || 0);
+  if (dur > 0) return Math.min(1, pos / dur);
+  return 1;
+}
+
+// Mapa "movie:123" / "series:456" -> "done" | "partial"
+async function statusMap() {
+  const map = new Map();
+  const hist = await readHistory();
+  for (const h of hist) {
+    const k = h.kind + ":" + h.id;
+    const st = h.p >= 0.9 ? "done" : "partial";
+    if (map.get(k) !== "done") map.set(k, st);
+  }
+  return map;
+}
+
+function mark(it, st) {
+  const s = st.get((it.kind === "movie" ? "movie" : "series") + ":" + (it.ids && it.ids.tmdb));
+  if (!s) return it;
+  return Object.assign({}, it, { title: (s === "done" ? "✓ " : "▶ ") + it.title });
 }
 
 async function paraTi() {
@@ -258,10 +287,11 @@ function rowDefs() {
 
 async function buildRows(defs) {
   const errs = [];
+  const st = await statusMap();
   const rows = await Promise.all(
     defs.map(async (d) => {
       try {
-        const list = await d.load();
+        const list = (await d.load()).map((it) => mark(it, st));
         if (!list.length) {
           errs.push(d.id + ": vacia");
           return null;
