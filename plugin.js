@@ -170,7 +170,8 @@ async function statusMap() {
 function mark(it, st) {
   const s = st.get((it.kind === "movie" ? "movie" : "series") + ":" + (it.ids && it.ids.tmdb));
   if (!s) return it;
-  return Object.assign({}, it, { title: (s === "done" ? "✓ " : "▶ ") + it.title });
+  const tag = s === "done" ? "🔴 " + t("Visto", "Watched") + " · " : "🟢 ▶ ";
+  return Object.assign({}, it, { title: tag + it.title });
 }
 
 async function paraTi() {
