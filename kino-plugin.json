@@ -1,7 +1,7 @@
 {
   "id": "top-streaming-2",
   "name": "Top Streaming 2.0",
-  "version": "0.1.34",
+  "version": "0.1.65",
   "apiVersion": 15,
   "entry": "plugin.js",
   "description": "Estrenos y lo más visto de Netflix y Prime Video, más los K-dramas y las series turcas del momento, con recomendaciones según lo que ves. Marca lo que ya viste y lo que sigues viendo. Solo catálogo.",
