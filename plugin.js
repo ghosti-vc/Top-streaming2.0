@@ -112,6 +112,39 @@ function turcas() {
   });
 }
 
+async function paraTi() {
+  await null;
+  if (typeof kino.library !== "object") return [];
+  let seen = [];
+  try {
+    seen = (await kino.library.watched({ limit: 30 })) || [];
+  } catch (e) {
+    return [];
+  }
+  const valid = seen.filter((e) => e && e.ids && e.ids.tmdb);
+  if (!valid.length) return [];
+  const watchedKeys = new Set(valid.map((e) => e.kind + ":" + e.ids.tmdb));
+  const base = valid.slice(0, 6);
+  const lists = await Promise.all(
+    base.map(async (e) => {
+      const kind = e.kind === "movie" ? "movie" : "series";
+      try {
+        return await raw(kind, "/" + (kind === "movie" ? "movie" : "tv") + "/" + e.ids.tmdb + "/recommendations", {});
+      } catch (err) {
+        return [];
+      }
+    })
+  );
+  const mixed = [];
+  const max = Math.max(0, ...lists.map((l) => l.length));
+  for (let i = 0; i < max; i++) {
+    for (const l of lists) {
+      if (l[i] && !watchedKeys.has(l[i].kind + ":" + l[i].r.id)) mixed.push(l[i]);
+    }
+  }
+  return items(mixed, 20);
+}
+
 function rowDefs() {
   const platform = (key, name) => [
     {
@@ -128,6 +161,13 @@ function rowDefs() {
     },
   ];
   return {
+    parati: [
+      {
+        id: "para-ti",
+        title: t("Para Ti", "For You"),
+        load: async () => paraTi(),
+      },
+    ],
     estrenos: [
       {
         id: "estrenos-pelis",
@@ -177,12 +217,84 @@ function rowDefs() {
   };
 }
 
+function norm(s) {
+  let x = String(s || "").toLowerCase();
+  if (typeof x.normalize === "function") x = x.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  return x.replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+async function loadWatched() {
+  await null;
+  if (typeof kino.library !== "object") return null;
+  const map = new Map();
+  try {
+    for (const k of ["movie", "series"]) {
+      const list = await kino.library.watched({ limit: 100, kind: k });
+      for (const e of list || []) {
+        if (!e) continue;
+        if (e.ids && e.ids.tmdb) map.set(e.kind + ":" + e.ids.tmdb, e);
+        if (e.title) map.set(e.kind + ":t:" + norm(e.title), e);
+      }
+    }
+  } catch (e) {
+    return null;
+  }
+  return map;
+}
+
+async function statusOf(it, e) {
+  const p = Number(e.progress) || 0;
+  if (it.kind === "movie") {
+    if (p >= 0.95) return { done: true };
+    if (p > 0) return { text: t("Seguir viendo", "Keep watching") };
+    return null;
+  }
+  const s = e.season;
+  const n = e.episode;
+  if (!s || !n) return p >= 0.95 ? null : { text: t("Seguir viendo", "Keep watching") };
+  let last = null;
+  try {
+    const d = await tmdb("/tv/" + it.ids.tmdb, {});
+    last = d && d.last_episode_to_air;
+  } catch (err) {
+    last = null;
+  }
+  if (last && last.season_number === s && n >= last.episode_number && p >= 0.95) {
+    return { done: true };
+  }
+  const where = "T" + s + " · Cap. " + n;
+  if (p >= 0.95) {
+    return { text: t("Seguir viendo · terminaste " + where, "Keep watching · finished S" + s + " · Ep. " + n) };
+  }
+  return { text: t("Seguir viendo · " + where, "Keep watching · S" + s + " · Ep. " + n) };
+}
+
+async function mark(list, watched) {
+  if (!watched) return list;
+  return Promise.all(
+    list.map(async (it) => {
+      const e =
+        watched.get(it.kind + ":" + it.ids.tmdb) ||
+        watched.get(it.kind + ":t:" + norm(it.title));
+      if (!e) return it;
+      const st = await statusOf(it, e);
+      if (!st) return it;
+      const label = st.done ? t("Visto", "Watched") : st.text;
+      it.title = (st.done ? "✅ " : "▶ ") + it.title;
+      it.overview = (label + (it.overview ? "\n\n" + it.overview : "")).slice(0, 2000);
+      return it;
+    })
+  );
+}
+
 async function buildRows(defs) {
   const errs = [];
+  const watched = await loadWatched();
   const rows = await Promise.all(
     defs.map(async (d) => {
       try {
-        const list = await d.load();
+        let list = await d.load();
+        list = await mark(list, watched);
         if (!list.length) {
           errs.push(d.id + ": vacia");
           return null;
@@ -209,7 +321,7 @@ async function buildRows(defs) {
 
 export async function home() {
   const all = rowDefs();
-  const order = ["vistas", "estrenos", "netflix", "prime", "kdramas", "turcas"];
+  const order = ["parati", "vistas", "estrenos", "netflix", "prime", "kdramas", "turcas"];
   const defs = [];
   for (const k of order) defs.push(...all[k]);
   return buildRows(defs);
