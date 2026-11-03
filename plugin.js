@@ -112,7 +112,9 @@ function turcas() {
   });
 }
 
-async function paraTi() {
+// Para Ti a partir de lo que la persona ya vio. Si no hay historial
+// (o kino.library no existe) devuelve una lista vacia.
+async function fromHistory() {
   await null;
   if (typeof kino.library !== "object") return [];
   let seen = [];
@@ -143,6 +145,48 @@ async function paraTi() {
     }
   }
   return items(mixed, 20);
+}
+
+// Respaldo de Para Ti: lo mas popular de la semana y lo mejor calificado,
+// mezclando peliculas y series.
+async function fallbackParaTi() {
+  const lists = await Promise.all([
+    raw("movie", "/trending/movie/week", {}).catch(() => []),
+    raw("series", "/trending/tv/week", {}).catch(() => []),
+    raw("movie", "/movie/top_rated", {}).catch(() => []),
+    raw("series", "/tv/top_rated", {}).catch(() => []),
+  ]);
+  const mixed = [];
+  const max = Math.max(0, ...lists.map((l) => l.length));
+  for (let i = 0; i < max; i++) {
+    for (const l of lists) {
+      if (l[i]) mixed.push(l[i]);
+    }
+  }
+  return items(mixed, 20);
+}
+
+async function paraTi() {
+  await null;
+  let hist = [];
+  try {
+    hist = await fromHistory();
+  } catch (e) {
+    hist = [];
+  }
+  // Con buen historial, solo recomendaciones personales.
+  if (hist.length >= 10) return hist;
+  // Sin historial (o poco): se completa con el respaldo, sin repetir.
+  const fb = await fallbackParaTi();
+  const seen = new Set(hist.map((x) => x.id));
+  const out = hist.slice();
+  for (const it of fb) {
+    if (seen.has(it.id)) continue;
+    seen.add(it.id);
+    out.push(it);
+    if (out.length >= 20) break;
+  }
+  return out;
 }
 
 function rowDefs() {
