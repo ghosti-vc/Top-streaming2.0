@@ -112,106 +112,37 @@ function turcas() {
   });
 }
 
-/* ---------- Para Ti ---------- */
-
-// Lee el historial de lo que viste. Prueba kino.history y kino.storage;
-// si la app no ofrece ninguno, devuelve [] y la fila usa lo popular.
-async function readHistory() {
+async function paraTi() {
+  await null;
+  if (typeof kino.library !== "object") return [];
+  let seen = [];
   try {
-    let h = null;
-    if (kino.history && typeof kino.history.list === "function") {
-      h = await kino.history.list();
-    } else if (kino.storage && typeof kino.storage.get === "function") {
-      h = await kino.storage.get("history");
-    }
-    if (!Array.isArray(h)) return [];
-    const out = [];
-    for (const e of h) {
-      let kind = e && e.kind;
-      let id = e && ((e.ids && e.ids.tmdb) || e.tmdb);
-      const ref = e && typeof e.ref === "string" ? e.ref : "";
-      const m = /^(movie|tv):(\d+)$/.exec(ref);
-      if (m) {
-        kind = m[1] === "movie" ? "movie" : "series";
-        id = Number(m[2]);
-      }
-      if (kind === "tv") kind = "series";
-      if ((kind === "movie" || kind === "series") && id) out.push({ kind, id: Number(id), p: progressOf(e) });
-    }
-    return out;
+    seen = (await kino.library.watched({ limit: 30 })) || [];
   } catch (e) {
     return [];
   }
-}
-
-// Progreso de 0 a 1. Sin datos de progreso, cuenta como visto (1).
-function progressOf(e) {
-  if (!e) return 1;
-  if (e.watched === true || e.completed === true || e.finished === true) return 1;
-  if (typeof e.progress === "number") return e.progress > 1 ? e.progress / 100 : e.progress;
-  const pos = Number(e.position || e.positionMs || e.time || 0);
-  const dur = Number(e.duration || e.durationMs || 0);
-  if (dur > 0) return Math.min(1, pos / dur);
-  return 1;
-}
-
-// Mapa "movie:123" / "series:456" -> "done" | "partial"
-async function statusMap() {
-  const map = new Map();
-  const hist = await readHistory();
-  for (const h of hist) {
-    const k = h.kind + ":" + h.id;
-    const st = h.p >= 0.9 ? "done" : "partial";
-    if (map.get(k) !== "done") map.set(k, st);
-  }
-  return map;
-}
-
-function mark(it, st) {
-  const s = st.get((it.kind === "movie" ? "movie" : "series") + ":" + (it.ids && it.ids.tmdb));
-  if (!s) return it;
-  const tag = s === "done" ? t("Visto", "Watched") + " · " : "▶ ";
-  return Object.assign({}, it, { title: tag + it.title });
-}
-
-async function paraTi() {
-  const hist = await readHistory();
-  const seen = new Set(hist.map((h) => h.kind + ":" + h.id));
-  // los 6 más recientes (asumiendo que el historial viene del más nuevo al más viejo)
-  const seeds = [];
-  const seedKeys = new Set();
-  for (const h of hist) {
-    const k = h.kind + ":" + h.id;
-    if (seedKeys.has(k)) continue;
-    seedKeys.add(k);
-    seeds.push(h);
-    if (seeds.length >= 6) break;
-  }
-  let lists = [];
-  if (seeds.length) {
-    const res = await Promise.all(
-      seeds.map((s) =>
-        raw(s.kind, "/" + (s.kind === "movie" ? "movie" : "tv") + "/" + s.id + "/recommendations", {}).catch(
-          () => []
-        )
-      )
-    );
-    // mezcla una de cada lista para variar
-    const max = Math.max(...res.map((l) => l.length));
-    for (let i = 0; i < max; i++) for (const l of res) if (l[i]) lists.push(l[i]);
-  }
-  lists = lists.filter((x) => !seen.has(x.kind + ":" + x.r.id));
-  if (lists.length < 10) {
-    // sin historial o pocas recomendaciones: completa con lo popular
-    const [m, s] = await Promise.all([trending("movie"), trending("series")]);
-    const fill = [];
-    for (let i = 0; i < Math.max(m.length, s.length); i++) {
-      if (m[i]) fill.push(m[i]);
-      if (s[i]) fill.push(s[i]);
+  const valid = seen.filter((e) => e && e.ids && e.ids.tmdb);
+  if (!valid.length) return [];
+  const watchedKeys = new Set(valid.map((e) => e.kind + ":" + e.ids.tmdb));
+  const base = valid.slice(0, 6);
+  const lists = await Promise.all(
+    base.map(async (e) => {
+      const kind = e.kind === "movie" ? "movie" : "series";
+      try {
+        return await raw(kind, "/" + (kind === "movie" ? "movie" : "tv") + "/" + e.ids.tmdb + "/recommendations", {});
+      } catch (err) {
+        return [];
+      }
+    })
+  );
+  const mixed = [];
+  const max = Math.max(0, ...lists.map((l) => l.length));
+  for (let i = 0; i < max; i++) {
+    for (const l of lists) {
+      if (l[i] && !watchedKeys.has(l[i].kind + ":" + l[i].r.id)) mixed.push(l[i]);
     }
-    lists = lists.concat(fill.filter((x) => !seen.has(x.kind + ":" + x.r.id)));
   }
-  return items(lists, 20);
+  return items(mixed, 20);
 }
 
 function rowDefs() {
@@ -234,7 +165,7 @@ function rowDefs() {
       {
         id: "para-ti",
         title: t("Para Ti", "For You"),
-        load: async () => await paraTi(),
+        load: async () => paraTi(),
       },
     ],
     estrenos: [
@@ -286,13 +217,84 @@ function rowDefs() {
   };
 }
 
+function norm(s) {
+  let x = String(s || "").toLowerCase();
+  if (typeof x.normalize === "function") x = x.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  return x.replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+async function loadWatched() {
+  await null;
+  if (typeof kino.library !== "object") return null;
+  const map = new Map();
+  try {
+    for (const k of ["movie", "series"]) {
+      const list = await kino.library.watched({ limit: 100, kind: k });
+      for (const e of list || []) {
+        if (!e) continue;
+        if (e.ids && e.ids.tmdb) map.set(e.kind + ":" + e.ids.tmdb, e);
+        if (e.title) map.set(e.kind + ":t:" + norm(e.title), e);
+      }
+    }
+  } catch (e) {
+    return null;
+  }
+  return map;
+}
+
+async function statusOf(it, e) {
+  const p = Number(e.progress) || 0;
+  if (it.kind === "movie") {
+    if (p >= 0.95) return { done: true };
+    if (p > 0) return { text: t("Seguir viendo", "Keep watching") };
+    return null;
+  }
+  const s = e.season;
+  const n = e.episode;
+  if (!s || !n) return p >= 0.95 ? null : { text: t("Seguir viendo", "Keep watching") };
+  let last = null;
+  try {
+    const d = await tmdb("/tv/" + it.ids.tmdb, {});
+    last = d && d.last_episode_to_air;
+  } catch (err) {
+    last = null;
+  }
+  if (last && last.season_number === s && n >= last.episode_number && p >= 0.95) {
+    return { done: true };
+  }
+  const where = "T" + s + " · Cap. " + n;
+  if (p >= 0.95) {
+    return { text: t("Seguir viendo · terminaste " + where, "Keep watching · finished S" + s + " · Ep. " + n) };
+  }
+  return { text: t("Seguir viendo · " + where, "Keep watching · S" + s + " · Ep. " + n) };
+}
+
+async function mark(list, watched) {
+  if (!watched) return list;
+  return Promise.all(
+    list.map(async (it) => {
+      const e =
+        watched.get(it.kind + ":" + it.ids.tmdb) ||
+        watched.get(it.kind + ":t:" + norm(it.title));
+      if (!e) return it;
+      const st = await statusOf(it, e);
+      if (!st) return it;
+      const label = st.done ? t("Visto", "Watched") : st.text;
+      it.title = (st.done ? t("Visto", "Watched") + " · " : "▶ ") + it.title;
+      it.overview = (label + (it.overview ? "\n\n" + it.overview : "")).slice(0, 2000);
+      return it;
+    })
+  );
+}
+
 async function buildRows(defs) {
   const errs = [];
-  const st = await statusMap();
+  const watched = await loadWatched();
   const rows = await Promise.all(
     defs.map(async (d) => {
       try {
-        const list = (await d.load()).map((it) => mark(it, st));
+        let list = await d.load();
+        list = await mark(list, watched);
         if (!list.length) {
           errs.push(d.id + ": vacia");
           return null;
