@@ -324,7 +324,10 @@ export async function home() {
   const order = ["parati", "vistas", "estrenos", "netflix", "prime", "kdramas", "turcas"];
   const defs = [];
   for (const k of order) defs.push(...all[k]);
-  return buildRows(defs);
+  const rows = await buildRows(defs);
+  // En el home se quita "genre" para que las filas de películas no se
+  // redirijan solo a la biblioteca, y se prefija el id para evitar choques.
+  return rows.map(({ genre, ...row }) => ({ ...row, id: "home-" + row.id }));
 }
 
 export async function section({ tab }) {
@@ -353,4 +356,3 @@ export async function resolve(ref) {
     userMessage: "Este catálogo no reproduce: busca el título en tus otras fuentes.",
   });
 }
- 
