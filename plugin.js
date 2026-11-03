@@ -81,6 +81,10 @@ function items(list, limit) {
   return out;
 }
 
+function trending(kind) {
+  return raw(kind, "/trending/" + (kind === "movie" ? "movie" : "tv") + "/week", {});
+}
+
 function premieres(kind, providers) {
   const isMovie = kind === "movie";
   const f = isMovie ? "primary_release_date" : "first_air_date";
@@ -236,18 +240,18 @@ function rowDefs() {
         load: async () => paraTi(),
       },
     ],
-    estrenos: [
+    vistas: [
       {
-        id: "estrenos-pelis",
-        title: t("Estrenos: Películas", "New: Movies"),
+        id: "vistas-pelis",
+        title: t("Más vistas: Películas", "Most watched: Movies"),
         genre: "peliculas",
-        load: async () => items(await premieres("movie", PROV.todas), 20),
+        load: async () => items(await trending("movie"), 20),
       },
       {
-        id: "estrenos-series",
-        title: t("Estrenos: Series", "New: Series"),
+        id: "vistas-series",
+        title: t("Más vistas: Series", "Most watched: Series"),
         genre: "series",
-        load: async () => items(await premieres("series", PROV.todas), 20),
+        load: async () => items(await trending("series"), 20),
       },
     ],
     netflix: platform("netflix", "Netflix"),
@@ -378,7 +382,7 @@ async function buildRows(defs) {
 
 export async function home() {
   const all = rowDefs();
-  const order = ["parati", "estrenos", "netflix", "prime", "hbo", "disney", "apple", "kdramas", "turcas"];
+  const order = ["parati", "vistas", "netflix", "prime", "hbo", "disney", "apple", "kdramas", "turcas"];
   const defs = [];
   for (const k of order) defs.push(...all[k]);
   const rows = await buildRows(defs);
@@ -391,7 +395,7 @@ export async function section({ tab }) {
   const all = rowDefs();
   const tabs = [
     { id: "parati", label: t("Para Ti", "For You") },
-    { id: "estrenos", label: t("Estrenos", "New") },
+    { id: "vistas", label: t("Más vistas", "Most watched") },
     { id: "netflix", label: "Netflix" },
     { id: "prime", label: "Prime Video" },
     { id: "hbo", label: "HBO" },
@@ -400,7 +404,7 @@ export async function section({ tab }) {
     { id: "kdramas", label: "K-dramas" },
     { id: "turcas", label: t("Series turcas", "Turkish series") },
   ];
-  const chosen = tabs.some((x) => x.id === tab) ? tab : "estrenos";
+  const chosen = tabs.some((x) => x.id === tab) ? tab : "vistas";
   return { tabs, tab: chosen, rows: await buildRows(all[chosen]) };
 }
 
@@ -415,4 +419,3 @@ export async function resolve(ref) {
     userMessage: "Este catálogo no reproduce: busca el título en tus otras fuentes.",
   });
 }
- 
