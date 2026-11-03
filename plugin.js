@@ -317,29 +317,12 @@ async function buildRows(defs) {
   ];
 }
 
-// TEMPORAL: muestra qué ofrece Kino y cuántos títulos hay en el historial
-async function diagRow() {
-  let keys = "?";
-  try {
-    const s = new Set(Object.keys(kino));
-    Object.getOwnPropertyNames(kino).forEach((k) => s.add(k));
-    keys = Array.from(s).join(", ");
-  } catch (e) {}
-  const h = await readHistory();
-  return {
-    id: "diag",
-    title: ("DIAG kino: " + keys + " | historial: " + h.length).slice(0, 190),
-    items: [{ id: "d0", ref: "movie:0", title: "Diagnóstico temporal", kind: "movie" }],
-  };
-}
-
 export async function home() {
   const all = rowDefs();
   const order = ["parati", "vistas", "estrenos", "netflix", "prime", "kdramas", "turcas"];
   const defs = [];
   for (const k of order) defs.push(...all[k]);
-  const rows = await buildRows(defs);
-  return [await diagRow(), ...rows];
+  return buildRows(defs);
 }
 
 export async function section({ tab }) {
