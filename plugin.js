@@ -68,6 +68,16 @@ async function raw(kind, path, params) {
   return results.map((r) => ({ r, kind }));
 }
 
+// Varias paginas de TMDB (20 por pagina). Con n <= 20 es una sola llamada, igual que antes.
+async function rawPages(kind, path, params, n) {
+  const count = Math.max(1, Math.ceil((n || 20) / 20));
+  if (count === 1) return raw(kind, path, params);
+  const parts = await Promise.all(
+    Array.from({ length: count }, (_, i) => raw(kind, path, Object.assign({}, params, { page: i + 1 })))
+  );
+  return [].concat(...parts);
+}
+
 function items(list, limit) {
   const out = [];
   const seen = new Set();
@@ -81,11 +91,11 @@ function items(list, limit) {
   return out;
 }
 
-function trending(kind) {
-  return raw(kind, "/trending/" + (kind === "movie" ? "movie" : "tv") + "/week", {});
+function trending(kind, n) {
+  return rawPages(kind, "/trending/" + (kind === "movie" ? "movie" : "tv") + "/week", {}, n);
 }
 
-function premieres(kind, providers) {
+function premieres(kind, providers, n) {
   const isMovie = kind === "movie";
   const f = isMovie ? "primary_release_date" : "first_air_date";
   const params = {
@@ -96,30 +106,36 @@ function premieres(kind, providers) {
   };
   params[f + ".gte"] = day(-45);
   params[f + ".lte"] = day(0);
-  return raw(kind, "/discover/" + (isMovie ? "movie" : "tv"), params);
+  return rawPages(kind, "/discover/" + (isMovie ? "movie" : "tv"), params, n);
 }
 
-function popular(kind, providers) {
+function popular(kind, providers, n) {
   const isMovie = kind === "movie";
-  return raw(kind, "/discover/" + (isMovie ? "movie" : "tv"), {
-    watch_region: REGION,
-    with_watch_providers: providers,
-    with_watch_monetization_types: "flatrate",
-    sort_by: "popularity.desc",
-  });
+  return rawPages(
+    kind,
+    "/discover/" + (isMovie ? "movie" : "tv"),
+    {
+      watch_region: REGION,
+      with_watch_providers: providers,
+      with_watch_monetization_types: "flatrate",
+      sort_by: "popularity.desc",
+    },
+    n
+  );
 }
 
-// Estrenos de la plataforma; si hay menos de 20, se rellena con lo popular.
-async function premieresFilled(kind, providers) {
-  const out = items(await premieres(kind, providers), 20);
-  if (out.length >= 20) return out;
+// Estrenos de la plataforma; si hay menos de "limit", se rellena con lo popular.
+async function premieresFilled(kind, providers, limit) {
+  const lim = limit || 20;
+  const out = items(await premieres(kind, providers, lim), lim);
+  if (out.length >= lim) return out;
   const seen = new Set(out.map((x) => x.id));
-  const fill = items(await popular(kind, providers), 40);
+  const fill = items(await popular(kind, providers, lim), lim * 2);
   for (const it of fill) {
     if (seen.has(it.id)) continue;
     seen.add(it.id);
     out.push(it);
-    if (out.length >= 20) break;
+    if (out.length >= lim) break;
   }
   return out;
 }
@@ -142,7 +158,7 @@ function turcas() {
 
 // Para Ti a partir de lo que la persona ya vio. Si no hay historial
 // (o kino.library no existe) devuelve una lista vacia.
-async function fromHistory() {
+async function fromHistory(limit) {
   await null;
   if (typeof kino.library !== "object") return [];
   let seen = [];
@@ -172,12 +188,12 @@ async function fromHistory() {
       if (l[i] && !watchedKeys.has(l[i].kind + ":" + l[i].r.id)) mixed.push(l[i]);
     }
   }
-  return items(mixed, 20);
+  return items(mixed, limit || 20);
 }
 
 // Respaldo de Para Ti: lo mas popular de la semana y lo mejor calificado,
 // mezclando peliculas y series.
-async function fallbackParaTi() {
+async function fallbackParaTi(limit) {
   const lists = await Promise.all([
     raw("movie", "/trending/movie/week", {}).catch(() => []),
     raw("series", "/trending/tv/week", {}).catch(() => []),
@@ -191,45 +207,48 @@ async function fallbackParaTi() {
       if (l[i]) mixed.push(l[i]);
     }
   }
-  return items(mixed, 20);
+  return items(mixed, limit || 20);
 }
 
-async function paraTi() {
+async function paraTi(limit) {
   await null;
+  const lim = limit || 20;
   let hist = [];
   try {
-    hist = await fromHistory();
+    hist = await fromHistory(lim);
   } catch (e) {
     hist = [];
   }
   // Con buen historial, solo recomendaciones personales.
   if (hist.length >= 10) return hist;
   // Sin historial (o poco): se completa con el respaldo, sin repetir.
-  const fb = await fallbackParaTi();
+  const fb = await fallbackParaTi(lim);
   const seen = new Set(hist.map((x) => x.id));
   const out = hist.slice();
   for (const it of fb) {
     if (seen.has(it.id)) continue;
     seen.add(it.id);
     out.push(it);
-    if (out.length >= 20) break;
+    if (out.length >= lim) break;
   }
   return out;
 }
 
-function rowDefs() {
+// limit = cuantos titulos por fila: 20 en Inicio (por defecto), 50 en la biblioteca.
+function rowDefs(limit) {
+  const lim = limit || 20;
   const platform = (key, name) => [
     {
       id: key + "-pelis",
       title: t(name + ": Películas", name + ": Movies"),
       genre: "peliculas",
-      load: async () => premieresFilled("movie", PROV[key]),
+      load: async () => premieresFilled("movie", PROV[key], lim),
     },
     {
       id: key + "-series",
       title: t(name + ": Series", name + ": Series"),
       genre: "series",
-      load: async () => premieresFilled("series", PROV[key]),
+      load: async () => premieresFilled("series", PROV[key], lim),
     },
   ];
   return {
@@ -237,7 +256,7 @@ function rowDefs() {
       {
         id: "para-ti",
         title: t("Para Ti", "For You"),
-        load: async () => paraTi(),
+        load: async () => paraTi(lim),
       },
     ],
     vistas: [
@@ -245,13 +264,13 @@ function rowDefs() {
         id: "vistas-pelis",
         title: t("Más vistas: Películas", "Most watched: Movies"),
         genre: "peliculas",
-        load: async () => items(await trending("movie"), 20),
+        load: async () => items(await trending("movie", lim), lim),
       },
       {
         id: "vistas-series",
         title: t("Más vistas: Series", "Most watched: Series"),
         genre: "series",
-        load: async () => items(await trending("series"), 20),
+        load: async () => items(await trending("series", lim), lim),
       },
     ],
     netflix: platform("netflix", "Netflix"),
@@ -264,7 +283,7 @@ function rowDefs() {
         id: "top-kdramas",
         title: t("Top 20: K-Dramas", "Top 20: K-Dramas"),
         genre: "doramas",
-        load: async () => items(await kdramas(), 20),
+        load: async () => items(await kdramas(), lim),
       },
     ],
     turcas: [
@@ -272,7 +291,7 @@ function rowDefs() {
         id: "top-turcas",
         title: t("Top 20: Series Turcas", "Top 20: Turkish Series"),
         genre: "series",
-        load: async () => items(await turcas(), 20),
+        load: async () => items(await turcas(), lim),
       },
     ],
   };
@@ -392,19 +411,16 @@ export async function home() {
 }
 
 export async function section({ tab }) {
-  const all = rowDefs();
+  // En la biblioteca: 50 titulos por fila y sin las pestañas de Para Ti, Más vistas, K-dramas ni turcas.
+  const all = rowDefs(50);
   const tabs = [
-    { id: "parati", label: t("Para Ti", "For You") },
-    { id: "vistas", label: t("Más vistas", "Most watched") },
     { id: "netflix", label: "Netflix" },
     { id: "prime", label: "Prime Video" },
     { id: "hbo", label: "HBO" },
     { id: "disney", label: "Disney" },
     { id: "apple", label: "Apple TV" },
-    { id: "kdramas", label: "K-dramas" },
-    { id: "turcas", label: t("Series turcas", "Turkish series") },
   ];
-  const chosen = tabs.some((x) => x.id === tab) ? tab : "vistas";
+  const chosen = tabs.some((x) => x.id === tab) ? tab : "netflix";
   return { tabs, tab: chosen, rows: await buildRows(all[chosen]) };
 }
 
