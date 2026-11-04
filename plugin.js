@@ -239,13 +239,12 @@ function turEnEspanol(r) {
   return String(r.overview || "").trim().length > 0;
 }
 
-// Turcas: 1) populares de siempre, 2) estrenos 90 dias, 3) de 91 a 365 dias.
-// Cada grupo tiene un tope para que los estrenos tambien aparezcan.
+// Turcas: 1) 60% populares de siempre, 2) 40% estrenos 90 dias, 3) de 91 a 365 dias.
 async function turcasFilled(limit) {
   const lim = limit || 20;
   const pedir = lim * 5;
-  const metaPopulares = Math.round(lim * 0.4);
-  const metaEstrenos = Math.round(lim * 0.7);
+  const metaPopulares = Math.round(lim * 0.6);
+  const metaEstrenos = lim; // llega al total: 60% populares + 40% estrenos
   const out = [];
   const seen = new Set();
 
@@ -261,10 +260,10 @@ async function turcasFilled(limit) {
 
   const populares = await rawPages("series", "/discover/tv", turcaParams(), pedir);
 
-  // 1) Las mas populares de siempre
+  // 1) Las mas populares de siempre (60%)
   agregar(populares, metaPopulares);
 
-  // 2) Estrenos de los ultimos 90 dias
+  // 2) Estrenos de los ultimos 90 dias (40%)
   agregar(
     await rawPages(
       "series",
@@ -275,7 +274,7 @@ async function turcasFilled(limit) {
     metaEstrenos
   );
 
-  // 3) Mas de 90 dias (hasta 1 año)
+  // 3) Si faltan estrenos: de 91 dias hasta 1 año
   agregar(
     await rawPages(
       "series",
