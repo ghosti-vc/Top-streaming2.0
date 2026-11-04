@@ -234,7 +234,7 @@ async function paraTi(limit) {
   return out;
 }
 
-// limit = cuantos titulos por fila: 20 en Inicio (por defecto), 50 en la biblioteca.
+// limit = cuantos titulos por fila: 20 en Inicio (por defecto), 35 en la biblioteca.
 function rowDefs(limit) {
   const lim = limit || 20;
   const platform = (key, name) => [
@@ -411,8 +411,8 @@ export async function home() {
 }
 
 export async function section({ tab }) {
-  // En la biblioteca: 50 titulos por fila y sin las pestañas de Para Ti, Más vistas, K-dramas ni turcas.
-  const all = rowDefs(50);
+  // En la biblioteca: 35 titulos por fila y sin las pestañas de Para Ti, Más vistas, K-dramas ni turcas.
+  const all = rowDefs(35);
   const tabs = [
     { id: "netflix", label: "Netflix" },
     { id: "prime", label: "Prime Video" },
