@@ -8,6 +8,8 @@ const PROV = {
   hbo: "1899|384",
   disney: "337",
   apple: "350",
+  paramount: "531",
+  mgm: "34",
   todas: "8|1899|384|119|9|337",
 };
 
@@ -93,6 +95,24 @@ function items(list, limit) {
 
 function trending(kind, n) {
   return rawPages(kind, "/trending/" + (kind === "movie" ? "movie" : "tv") + "/week", {}, n);
+}
+
+// Más vistas: tendencia general (50%) + populares de Paramount+ (25%) y MGM+ (25%)
+async function vistasMix(kind, lim) {
+  const [tr, pa, mg] = await Promise.all([
+    trending(kind, lim),
+    popular(kind, PROV.paramount, 20).catch(() => []),
+    popular(kind, PROV.mgm, 20).catch(() => []),
+  ]);
+  const mixed = [];
+  const max = Math.max(tr.length, pa.length, mg.length);
+  for (let i = 0; i < max; i++) {
+    if (tr[i * 2]) mixed.push(tr[i * 2]);
+    if (tr[i * 2 + 1]) mixed.push(tr[i * 2 + 1]);
+    if (pa[i]) mixed.push(pa[i]);
+    if (mg[i]) mixed.push(mg[i]);
+  }
+  return items(mixed, lim);
 }
 
 function premieres(kind, providers, n) {
@@ -398,13 +418,13 @@ function rowDefs(limit) {
         id: "vistas-pelis",
         title: t("Más vistas: Películas", "Most watched: Movies"),
         genre: "peliculas",
-        load: async () => items(await trending("movie", lim), lim),
+        load: async () => vistasMix("movie", lim),
       },
       {
         id: "vistas-series",
         title: t("Más vistas: Series", "Most watched: Series"),
         genre: "series",
-        load: async () => items(await trending("series", lim), lim),
+        load: async () => vistasMix("series", lim),
       },
     ],
     netflix: platform("netflix", "Netflix"),
