@@ -140,12 +140,34 @@ async function premieresFilled(kind, providers, limit) {
   return out;
 }
 
-function kdramas() {
-  return raw("series", "/discover/tv", {
-    with_origin_country: "KR",
-    with_original_language: "ko",
-    sort_by: "popularity.desc",
-  });
+function kdramaParams(extra) {
+  return Object.assign(
+    { with_origin_country: "KR", with_original_language: "ko", sort_by: "popularity.desc" },
+    extra || {}
+  );
+}
+
+// K-dramas: primero los estrenos de los ultimos 45 dias; si hay menos de "limit",
+// se rellena con los mas populares.
+async function kdramasFilled(limit) {
+  const lim = limit || 20;
+  const recent = await rawPages(
+    "series",
+    "/discover/tv",
+    kdramaParams({ "first_air_date.gte": day(-45), "first_air_date.lte": day(0) }),
+    lim
+  );
+  const out = items(recent, lim);
+  if (out.length >= lim) return out;
+  const seen = new Set(out.map((x) => x.id));
+  const fill = items(await rawPages("series", "/discover/tv", kdramaParams(), lim), lim * 2);
+  for (const it of fill) {
+    if (seen.has(it.id)) continue;
+    seen.add(it.id);
+    out.push(it);
+    if (out.length >= lim) break;
+  }
+  return out;
 }
 
 function turcas() {
@@ -281,15 +303,15 @@ function rowDefs(limit) {
     kdramas: [
       {
         id: "top-kdramas",
-        title: t("Top 20: K-Dramas", "Top 20: K-Dramas"),
+        title: t("K-Dramas", "K-Dramas"),
         genre: "doramas",
-        load: async () => items(await kdramas(), lim),
+        load: async () => kdramasFilled(lim),
       },
     ],
     turcas: [
       {
         id: "top-turcas",
-        title: t("Top 20: Series Turcas", "Top 20: Turkish Series"),
+        title: t("Series Turcas", "Turkish Series"),
         genre: "series",
         load: async () => items(await turcas(), lim),
       },
