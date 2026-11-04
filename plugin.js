@@ -140,6 +140,38 @@ async function premieresFilled(kind, providers, limit) {
   return out;
 }
 
+// ===== Filtros K-Dramas =====
+const KD_IDS_BLOQUEADOS = []; // IDs de TMDB a ocultar, ej. [12345, 67890]
+const KD_PALABRAS_BLOQUEADAS = [
+  "suicidio", "suicida", "violacion", "abuso sexual", "abuso",
+  "acoso sexual", "agresion sexual", "autolesion", "incesto",
+  "pedofilia", "tortura", "violencia sexual", "erotic", "sexo explicito",
+];
+
+function kdHangul(s) {
+  return /[\u1100-\u11FF\u3130-\u318F\uAC00-\uD7AF]/.test(String(s || ""));
+}
+
+// Sin hangul en el titulo y con sinopsis en español
+function kdEnEspanol(r) {
+  if (!r) return false;
+  const title = r.name || r.title || "";
+  if (!title || kdHangul(title)) return false;
+  const ov = String(r.overview || "").trim();
+  if (!ov || kdHangul(ov)) return false;
+  return true;
+}
+
+function kdSensible(r) {
+  if (KD_IDS_BLOQUEADOS.includes(r.id)) return true;
+  const texto = norm((r.name || "") + " " + (r.overview || ""));
+  return KD_PALABRAS_BLOQUEADAS.some((p) => texto.includes(norm(p)));
+}
+
+function kdFiltrar(list) {
+  return list.filter(({ r }) => kdEnEspanol(r) && !kdSensible(r));
+}
+
 function kdramaParams(extra) {
   return Object.assign(
     { with_origin_country: "KR", with_original_language: "ko", sort_by: "popularity.desc" },
@@ -148,19 +180,25 @@ function kdramaParams(extra) {
 }
 
 // K-dramas: primero los estrenos de los ultimos 45 dias; si hay menos de "limit",
-// se rellena con los mas populares.
+// se rellena con los mas populares. Se piden de mas porque los filtros descartan series.
 async function kdramasFilled(limit) {
   const lim = limit || 20;
-  const recent = await rawPages(
-    "series",
-    "/discover/tv",
-    kdramaParams({ "first_air_date.gte": day(-45), "first_air_date.lte": day(0) }),
-    lim
+  const pedir = lim * 5;
+  const recent = kdFiltrar(
+    await rawPages(
+      "series",
+      "/discover/tv",
+      kdramaParams({ "first_air_date.gte": day(-45), "first_air_date.lte": day(0) }),
+      pedir
+    )
   );
   const out = items(recent, lim);
   if (out.length >= lim) return out;
   const seen = new Set(out.map((x) => x.id));
-  const fill = items(await rawPages("series", "/discover/tv", kdramaParams(), lim), lim * 2);
+  const fill = items(
+    kdFiltrar(await rawPages("series", "/discover/tv", kdramaParams(), pedir)),
+    lim * 2
+  );
   for (const it of fill) {
     if (seen.has(it.id)) continue;
     seen.add(it.id);
