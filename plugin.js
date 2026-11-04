@@ -239,47 +239,55 @@ function turEnEspanol(r) {
   return String(r.overview || "").trim().length > 0;
 }
 
-// Turcas por grupos: 1) ultimos 90 dias, 2) ultimo año, 3) populares de siempre.
+// Turcas: 1) populares de siempre, 2) estrenos 90 dias, 3) de 91 a 365 dias.
+// Cada grupo tiene un tope para que los estrenos tambien aparezcan.
 async function turcasFilled(limit) {
   const lim = limit || 20;
   const pedir = lim * 5;
+  const metaPopulares = Math.round(lim * 0.4);
+  const metaEstrenos = Math.round(lim * 0.7);
   const out = [];
   const seen = new Set();
 
-  const agregar = (lista) => {
+  const agregar = (lista, meta) => {
     const filtrada = lista.filter(({ r }) => turEnEspanol(r));
     for (const it of items(filtrada, lim * 3)) {
+      if (out.length >= meta) return;
       if (seen.has(it.id)) continue;
       seen.add(it.id);
       out.push(it);
-      if (out.length >= lim) return;
     }
   };
 
-  // 1) Estrenos de los ultimos 90 dias
+  const populares = await rawPages("series", "/discover/tv", turcaParams(), pedir);
+
+  // 1) Las mas populares de siempre
+  agregar(populares, metaPopulares);
+
+  // 2) Estrenos de los ultimos 90 dias
   agregar(
     await rawPages(
       "series",
       "/discover/tv",
       turcaParams({ "first_air_date.gte": day(-90), "first_air_date.lte": day(0) }),
       pedir
-    )
+    ),
+    metaEstrenos
   );
-  if (out.length >= lim) return out;
 
-  // 2) Estrenos del ultimo año (antes de los 90 dias)
+  // 3) Mas de 90 dias (hasta 1 año)
   agregar(
     await rawPages(
       "series",
       "/discover/tv",
       turcaParams({ "first_air_date.gte": day(-365), "first_air_date.lte": day(-91) }),
       pedir
-    )
+    ),
+    lim
   );
-  if (out.length >= lim) return out;
 
-  // 3) Relleno: las mas populares de siempre
-  agregar(await rawPages("series", "/discover/tv", turcaParams(), pedir));
+  // Si aun falta, se completa con mas populares
+  agregar(populares, lim);
   return out;
 }
 
