@@ -184,7 +184,7 @@ function kdEnEspanol(r) {
 
 function kdSensible(r) {
   if (KD_IDS_BLOQUEADOS.includes(r.id)) return true;
-  const texto = norm((r.name || "") + " " + (r.overview || ""));
+  const texto = norm((r.name || r.title || "") + " " + (r.overview || ""));
   return KD_PALABRAS_BLOQUEADAS.some((p) => texto.includes(norm(p)));
 }
 
@@ -240,6 +240,65 @@ async function kdramasFilled(limit) {
 
   // 3) Relleno: los mas populares de siempre
   agregar(await rawPages("series", "/discover/tv", kdramaParams(), pedir));
+  return out;
+}
+
+// ===== Viki + iQIYI (coreano, con sinopsis en español latino) =====
+// 344 = Rakuten Viki y 581 = iQIYI en TMDB. Además se busca por nombre en la lista
+// de TMDB, por si cambian; si esa consulta falla se usan solo estos dos números.
+const VIKI_FALLBACK = ["344", "581"];
+let vikiProv = null;
+
+async function vikiProviders() {
+  if (vikiProv) return vikiProv;
+  const ids = new Set(VIKI_FALLBACK);
+  try {
+    const d = await tmdb("/watch/providers/tv", { watch_region: REGION });
+    const list = d && Array.isArray(d.results) ? d.results : [];
+    for (const p of list) {
+      if (p && /viki|iqiyi/i.test(String(p.provider_name || ""))) ids.add(String(p.provider_id));
+    }
+  } catch (e) {
+    // se queda con los dos números de arriba
+  }
+  vikiProv = Array.from(ids).join("|");
+  return vikiProv;
+}
+
+// Lo más popular de siempre (sin filtro de fecha) en Viki e iQIYI, solo coreano,
+// sin hangul y con sinopsis en español. Primero México; si faltan títulos, se completa con EE. UU.
+async function vikiFilled(kind, limit) {
+  const lim = limit || 20;
+  const pedir = lim * 3;
+  const isMovie = kind === "movie";
+  const prov = await vikiProviders();
+  const out = [];
+  const seen = new Set();
+  for (const region of [REGION, "US"]) {
+    if (out.length >= lim) break;
+    let lista = [];
+    try {
+      lista = await rawPages(
+        kind,
+        "/discover/" + (isMovie ? "movie" : "tv"),
+        {
+          watch_region: region,
+          with_watch_providers: prov,
+          with_original_language: "ko",
+          sort_by: "popularity.desc",
+        },
+        pedir
+      );
+    } catch (e) {
+      lista = [];
+    }
+    for (const it of items(kdFiltrar(lista), lim * 3)) {
+      if (seen.has(it.id)) continue;
+      seen.add(it.id);
+      out.push(it);
+      if (out.length >= lim) break;
+    }
+  }
   return out;
 }
 
@@ -440,6 +499,20 @@ function rowDefs(limit) {
         load: async () => kdramasFilled(lim),
       },
     ],
+    viki: [
+      {
+        id: "viki-pelis",
+        title: t("Viki: Películas", "Viki: Movies"),
+        genre: "peliculas",
+        load: async () => vikiFilled("movie", lim),
+      },
+      {
+        id: "viki-series",
+        title: t("Viki: Series", "Viki: Series"),
+        genre: "doramas",
+        load: async () => vikiFilled("series", lim),
+      },
+    ],
     turcas: [
       {
         id: "top-turcas",
@@ -555,7 +628,7 @@ async function buildRows(defs) {
 
 export async function home() {
   const all = rowDefs();
-  const order = ["parati", "vistas", "netflix", "prime", "hbo", "disney", "apple", "kdramas", "turcas"];
+  const order = ["parati", "vistas", "netflix", "prime", "hbo", "disney", "apple", "kdramas", "viki", "turcas"];
   const defs = [];
   for (const k of order) defs.push(...all[k]);
   const rows = await buildRows(defs);
@@ -566,15 +639,16 @@ export async function home() {
 
 export async function section({ tab }) {
   // En la biblioteca: 35 titulos por fila y sin las pestañas de Para Ti, Más vistas, K-dramas ni turcas.
-  const all = rowDefs(35);
   const tabs = [
     { id: "netflix", label: "Netflix" },
     { id: "prime", label: "Prime Video" },
     { id: "hbo", label: "HBO" },
     { id: "disney", label: "Disney" },
     { id: "apple", label: "Apple TV" },
+    { id: "viki", label: "Viki" },
   ];
   const chosen = tabs.some((x) => x.id === tab) ? tab : "netflix";
+  const all = rowDefs(35);
   return { tabs, tab: chosen, rows: await buildRows(all[chosen]) };
 }
 
