@@ -266,7 +266,7 @@ async function vikiProviders() {
 }
 
 // Lo más popular de siempre (sin filtro de fecha) en Viki e iQIYI, solo coreano,
-// sin hangul y con sinopsis en español. Primero México; si faltan títulos, se completa con EE. UU.
+// sin hangul y con sinopsis en español. Solo lo disponible en México.
 async function vikiFilled(kind, limit) {
   const lim = limit || 20;
   const pedir = lim * 3;
@@ -274,7 +274,7 @@ async function vikiFilled(kind, limit) {
   const prov = await vikiProviders();
   const out = [];
   const seen = new Set();
-  for (const region of [REGION, "US"]) {
+  for (const region of [REGION]) {
     if (out.length >= lim) break;
     let lista = [];
     try {
