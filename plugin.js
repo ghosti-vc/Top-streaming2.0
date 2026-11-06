@@ -203,7 +203,7 @@ function kdramaParams(extra) {
 // Dentro de cada grupo se ordena por popularidad.
 async function kdramasFilled(limit) {
   const lim = limit || 20;
-  const pedir = lim * 5;
+  const pedir = lim * 3;
   const out = [];
   const seen = new Set();
 
@@ -321,7 +321,7 @@ function turEnEspanol(r) {
 // Turcas: 1) 60% populares de siempre, 2) 40% estrenos 90 dias, 3) de 91 a 365 dias.
 async function turcasFilled(limit) {
   const lim = limit || 20;
-  const pedir = lim * 5;
+  const pedir = lim * 3;
   const metaPopulares = Math.round(lim * 0.6);
   const metaEstrenos = lim; // llega al total: 60% populares + 40% estrenos
   const out = [];
@@ -352,6 +352,8 @@ async function turcasFilled(limit) {
     ),
     metaEstrenos
   );
+
+  if (out.length >= lim) return out;
 
   // 3) Si faltan estrenos: de 91 dias hasta 1 año
   agregar(
@@ -663,4 +665,3 @@ export async function resolve(ref) {
     userMessage: "Este catálogo no reproduce: busca el título en tus otras fuentes.",
   });
 }
- 
