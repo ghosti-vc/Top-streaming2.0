@@ -633,7 +633,7 @@ async function buildRows(defs) {
 
 export async function home() {
   const all = rowDefs();
-  const order = ["parati", "vistas", "netflix", "prime", "hbo", "disney", "apple", "viki"];
+  const order = ["parati", "vistas", "netflix", "prime", "hbo", "disney", "apple", "kdramas", "viki"];
   const defs = [];
   for (const k of order) defs.push(...all[k]);
   const rows = await buildRows(defs);
@@ -643,7 +643,7 @@ export async function home() {
 }
 
 export async function section({ tab }) {
-  // En el catalogo: 35 titulos por fila. K-Dramas y Series Turcas solo salen aqui, no en el Inicio.
+  // En el catalogo: 35 titulos por fila. Series Turcas solo sale aqui, no en el Inicio.
   const tabs = [
     { id: "netflix", label: "Netflix" },
     { id: "prime", label: "Prime Video" },
