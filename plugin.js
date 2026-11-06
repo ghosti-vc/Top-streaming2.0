@@ -244,36 +244,32 @@ async function kdramasFilled(limit) {
 }
 
 // ===== Viki + iQIYI (coreano, con sinopsis en español latino) =====
-// 344 = Rakuten Viki y 581 = iQIYI en TMDB. Además se busca por nombre en la lista
-// de TMDB, por si cambian; si esa consulta falla se usan solo estos dos números.
+// 344 = Rakuten Viki y 581 = iQIYI en TMDB. Además se buscan por nombre en la lista
+// de TMDB (México y EE. UU.), por si cambian; si esa consulta falla se usan solo estos dos números.
 const VIKI_FALLBACK = ["344", "581"];
+const VIKI_REGIONES = [REGION, "US"];
 let vikiProv = null;
-let vikiNames = "";
 
 async function vikiProviders() {
   if (vikiProv) return vikiProv;
   const ids = new Set(VIKI_FALLBACK);
-  const names = [];
-  try {
-    const d = await tmdb("/watch/providers/tv", { watch_region: REGION });
-    const list = d && Array.isArray(d.results) ? d.results : [];
-    for (const p of list) {
-      if (p && /viki|iqiyi/i.test(String(p.provider_name || ""))) {
-        ids.add(String(p.provider_id));
-        names.push(p.provider_name + "=" + p.provider_id);
+  for (const region of VIKI_REGIONES) {
+    try {
+      const d = await tmdb("/watch/providers/tv", { watch_region: region });
+      const list = d && Array.isArray(d.results) ? d.results : [];
+      for (const p of list) {
+        if (p && /viki|iqiyi/i.test(String(p.provider_name || ""))) ids.add(String(p.provider_id));
       }
+    } catch (e) {
+      // se queda con lo que ya tiene
     }
-    if (!names.length) names.push("ninguno en la lista de MX");
-  } catch (e) {
-    names.push("lista fallo: " + errText(e));
   }
-  vikiNames = names.join(",");
   vikiProv = Array.from(ids).join("|");
   return vikiProv;
 }
 
 // Lo más popular de siempre (sin filtro de fecha) en Viki e iQIYI, solo coreano,
-// sin hangul y con sinopsis en español. Solo lo disponible en México.
+// sin hangul y con sinopsis en español. Primero México; si faltan títulos, se completa con EE. UU.
 async function vikiFilled(kind, limit) {
   const lim = limit || 20;
   const pedir = lim * 3;
@@ -281,10 +277,7 @@ async function vikiFilled(kind, limit) {
   const prov = await vikiProviders();
   const out = [];
   const seen = new Set();
-  let total = 0;
-  let conSinopsis = 0;
-  let falla = "";
-  for (const region of [REGION]) {
+  for (const region of VIKI_REGIONES) {
     if (out.length >= lim) break;
     let lista = [];
     try {
@@ -301,10 +294,7 @@ async function vikiFilled(kind, limit) {
       );
     } catch (e) {
       lista = [];
-      falla = errText(e);
     }
-    total = lista.length;
-    conSinopsis = lista.filter(({ r }) => kdEnEspanol(r)).length;
     for (const it of items(kdFiltrar(lista), lim * 3)) {
       if (seen.has(it.id)) continue;
       seen.add(it.id);
@@ -312,24 +302,7 @@ async function vikiFilled(kind, limit) {
       if (out.length >= lim) break;
     }
   }
-  if (out.length) return out;
-  // DIAGNOSTICO TEMPORAL: si no hay nada, la fila muestra por qué.
-  let us = "?";
-  try {
-    const d = await tmdb("/discover/" + (isMovie ? "movie" : "tv"), {
-      watch_region: "US",
-      with_watch_providers: prov,
-      with_original_language: "ko",
-      sort_by: "popularity.desc",
-    });
-    us = String(d && Array.isArray(d.results) ? d.results.length : 0);
-  } catch (e) {
-    us = "error " + errText(e);
-  }
-  const msg =
-    "Sin datos · ids " + prov + " · MX: " + total + " resultados, " + conSinopsis + " con sinopsis" +
-    (falla ? " · error " + falla : "") + " · EE.UU.: " + us + " · lista: " + vikiNames;
-  return [{ id: "diag-viki-" + kind, ref: isMovie ? "movie:0" : "tv:0", title: msg.slice(0, 190), kind: isMovie ? "movie" : "series" }];
+  return out;
 }
 
 // ===== Series turcas =====
