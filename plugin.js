@@ -449,7 +449,7 @@ async function paraTi(limit) {
   return out;
 }
 
-// limit = cuantos titulos por fila: 20 en Inicio (por defecto), 35 en la biblioteca.
+// limit = cuantos titulos por fila: 20 en Inicio (por defecto), 35 en el catalogo.
 function rowDefs(limit) {
   const lim = limit || 20;
   const platform = (key, name) => [
@@ -630,7 +630,7 @@ async function buildRows(defs) {
 
 export async function home() {
   const all = rowDefs();
-  const order = ["parati", "vistas", "netflix", "prime", "hbo", "disney", "apple", "kdramas", "viki", "turcas"];
+  const order = ["parati", "vistas", "netflix", "prime", "hbo", "disney", "apple", "viki"];
   const defs = [];
   for (const k of order) defs.push(...all[k]);
   const rows = await buildRows(defs);
@@ -640,7 +640,7 @@ export async function home() {
 }
 
 export async function section({ tab }) {
-  // En la biblioteca: 35 titulos por fila y sin las pestañas de Para Ti, Más vistas, K-dramas ni turcas.
+  // En el catalogo: 35 titulos por fila. K-Dramas y Series Turcas solo salen aqui, no en el Inicio.
   const tabs = [
     { id: "netflix", label: "Netflix" },
     { id: "prime", label: "Prime Video" },
@@ -648,6 +648,8 @@ export async function section({ tab }) {
     { id: "disney", label: "Disney" },
     { id: "apple", label: "Apple TV" },
     { id: "viki", label: "Viki" },
+    { id: "kdramas", label: "K-Dramas" },
+    { id: "turcas", label: "Series Turcas" },
   ];
   const chosen = tabs.some((x) => x.id === tab) ? tab : "netflix";
   const all = rowDefs(35);
