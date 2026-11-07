@@ -203,21 +203,48 @@ function kdramaParams(extra) {
 // filtrados para México, en una sola fila. 344 = Rakuten Viki.
 const KD_PLATAFORMAS = [PROV.netflix, PROV.disney, PROV.prime, PROV.hbo, PROV.apple, "344"].join("|");
 
+// Primero los que están en emisión; si faltan, se rellena con estrenos de las mismas plataformas:
+// últimos 30 días en el Inicio (20 títulos) y últimos 60 días en el catálogo (35 títulos).
 async function kdEmisionFilled(limit) {
   const lim = limit || 20;
-  const lista = await rawPages(
-    "series",
-    "/discover/tv",
-    kdramaParams({
-      watch_region: REGION,
-      with_watch_providers: KD_PLATAFORMAS,
-      with_watch_monetization_types: "flatrate",
-      with_status: "0",
-      "air_date.gte": day(-30),
-    }),
-    lim * 3
+  const dias = lim > 20 ? 60 : 30;
+  const base = {
+    watch_region: REGION,
+    with_watch_providers: KD_PLATAFORMAS,
+    with_watch_monetization_types: "flatrate",
+  };
+  const out = [];
+  const seen = new Set();
+  const agregar = (lista) => {
+    for (const it of items(kdFiltrar(lista), lim * 3)) {
+      if (out.length >= lim) return;
+      if (seen.has(it.id)) continue;
+      seen.add(it.id);
+      out.push(it);
+    }
+  };
+
+  // 1) En emisión: con un capítulo en los últimos 30 días
+  agregar(
+    await rawPages(
+      "series",
+      "/discover/tv",
+      kdramaParams(Object.assign({}, base, { with_status: "0", "air_date.gte": day(-30) })),
+      lim * 3
+    )
   );
-  return items(kdFiltrar(lista), lim);
+  if (out.length >= lim) return out;
+
+  // 2) Relleno: estrenos de los últimos 30 días (Inicio) o 60 días (catálogo)
+  agregar(
+    await rawPages(
+      "series",
+      "/discover/tv",
+      kdramaParams(Object.assign({}, base, { "first_air_date.gte": day(-dias), "first_air_date.lte": day(0) })),
+      lim * 3
+    )
+  );
+  return out;
 }
 
 // K-dramas por grupos: 1) ultimos 90 dias, 2) ultimo año, 3) populares de siempre.
