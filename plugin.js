@@ -199,6 +199,27 @@ function kdramaParams(extra) {
   );
 }
 
+// K-Dramas en emisión de todas las plataformas (Netflix, Disney+, Prime Video, HBO Max, Apple TV y Viki),
+// filtrados para México, en una sola fila. 344 = Rakuten Viki.
+const KD_PLATAFORMAS = [PROV.netflix, PROV.disney, PROV.prime, PROV.hbo, PROV.apple, "344"].join("|");
+
+async function kdEmisionFilled(limit) {
+  const lim = limit || 20;
+  const lista = await rawPages(
+    "series",
+    "/discover/tv",
+    kdramaParams({
+      watch_region: REGION,
+      with_watch_providers: KD_PLATAFORMAS,
+      with_watch_monetization_types: "flatrate",
+      with_status: "0",
+      "air_date.gte": day(-30),
+    }),
+    lim * 3
+  );
+  return items(kdFiltrar(lista), lim);
+}
+
 // K-dramas por grupos: 1) ultimos 90 dias, 2) ultimo año, 3) populares de siempre.
 // Dentro de cada grupo se ordena por popularidad.
 async function kdramasFilled(limit) {
@@ -497,6 +518,12 @@ function rowDefs(limit) {
     disney: platform("disney", "Disney"),
     apple: platform("apple", "Apple TV"),
     kdramas: [
+      {
+        id: "kdramas-emision",
+        title: t("K-Dramas en emisión", "K-Dramas on air"),
+        genre: "doramas",
+        load: async () => kdEmisionFilled(lim),
+      },
       {
         id: "top-kdramas",
         title: t("K-Dramas", "K-Dramas"),
