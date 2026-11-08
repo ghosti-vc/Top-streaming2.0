@@ -203,7 +203,7 @@ function kdramaParams(extra) {
 // filtrados para México, en una sola fila. 344 = Rakuten Viki.
 const KD_PLATAFORMAS = [PROV.netflix, PROV.disney, PROV.prime, PROV.hbo, PROV.apple, "344"].join("|");
 
-// Solo los que están en emisión (con un capítulo en los últimos 30 días), sin relleno.
+// Solo los que están en emisión (con un capítulo en los últimos 30 días), sin relleno y sin animación (género 16).
 async function kdEmisionFilled(limit) {
   const lim = limit || 20;
   const base = {
@@ -214,7 +214,7 @@ async function kdEmisionFilled(limit) {
   const lista = await rawPages(
     "series",
     "/discover/tv",
-    kdramaParams(Object.assign({}, base, { with_status: "0", "air_date.gte": day(-30) })),
+    kdramaParams(Object.assign({}, base, { with_status: "0", "air_date.gte": day(-30), without_genres: "16" })),
     lim * 3
   );
   return items(kdFiltrar(lista), lim);
