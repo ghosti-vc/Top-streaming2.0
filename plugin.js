@@ -203,56 +203,21 @@ function kdramaParams(extra) {
 // filtrados para México, en una sola fila. 344 = Rakuten Viki.
 const KD_PLATAFORMAS = [PROV.netflix, PROV.disney, PROV.prime, PROV.hbo, PROV.apple, "344"].join("|");
 
-// Primero los que están en emisión; si faltan, se rellena con estrenos de las mismas plataformas
-// de los últimos 60 días (Inicio y catálogo), de los más recientes a los más antiguos.
-const KD_DIAS_RELLENO = 60;
+// Solo los que están en emisión (con un capítulo en los últimos 30 días), sin relleno.
 async function kdEmisionFilled(limit) {
   const lim = limit || 20;
-  const dias = KD_DIAS_RELLENO;
   const base = {
     watch_region: REGION,
     with_watch_providers: KD_PLATAFORMAS,
     with_watch_monetization_types: "flatrate",
   };
-  const out = [];
-  const seen = new Set();
-  const agregar = (lista) => {
-    for (const it of items(kdFiltrar(lista), lim * 3)) {
-      if (out.length >= lim) return;
-      if (seen.has(it.id)) continue;
-      seen.add(it.id);
-      out.push(it);
-    }
-  };
-
-  // 1) En emisión: con un capítulo en los últimos 30 días
-  agregar(
-    await rawPages(
-      "series",
-      "/discover/tv",
-      kdramaParams(Object.assign({}, base, { with_status: "0", "air_date.gte": day(-30) })),
-      lim * 3
-    )
+  const lista = await rawPages(
+    "series",
+    "/discover/tv",
+    kdramaParams(Object.assign({}, base, { with_status: "0", "air_date.gte": day(-30) })),
+    lim * 3
   );
-  if (out.length >= lim) return out;
-
-  // 2) Relleno: estrenos de los últimos 60 días, del más reciente al más antiguo.
-  // Los que ya salieron en el paso 1 no se repiten (los filtra "seen").
-  agregar(
-    await rawPages(
-      "series",
-      "/discover/tv",
-      kdramaParams(
-        Object.assign({}, base, {
-          "first_air_date.gte": day(-dias),
-          "first_air_date.lte": day(0),
-          sort_by: "first_air_date.desc",
-        })
-      ),
-      lim * 3
-    )
-  );
-  return out;
+  return items(kdFiltrar(lista), lim);
 }
 
 // K-dramas por grupos: 1) ultimos 90 dias, 2) ultimo año, 3) populares de siempre.
