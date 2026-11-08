@@ -687,9 +687,74 @@ export async function section({ tab }) {
   return { tabs, tab: chosen, rows: await buildRows(all[chosen]) };
 }
 
+// ===== Capítulos y temporadas =====
+// ref de una serie: "tv:ID" (la temporada 1 o la primera que tenga TMDB) o "tv:ID:T" (la temporada T).
+// Devuelve los capítulos de esa temporada y, si la serie tiene más de una, la lista para cambiar de temporada.
 export async function episodes(ref) {
   await null;
-  return { episodes: [] };
+  const parts = String(ref || "").split(":");
+  const tmdbId = /^\d+$/.test(parts[1] || "") ? parts[1] : null;
+  if (parts[0] !== "tv" || !tmdbId) return { episodes: [] };
+  const wantSeason = /^\d+$/.test(parts[2] || "") ? Number(parts[2]) : null;
+
+  let show = null;
+  try {
+    show = await tmdb("/tv/" + tmdbId, {});
+  } catch (e) {
+    try { kino.log("episodes: no se pudo leer la serie " + tmdbId + ": " + errText(e)); } catch (_) {}
+    return { episodes: [] };
+  }
+  if (!show || typeof show !== "object") return { episodes: [] };
+
+  // Sin temporada 0 (los especiales); si la serie solo tiene especiales, se usa la temporada 1.
+  const allSeasons = (Array.isArray(show.seasons) ? show.seasons : []).filter((s) => s && s.season_number > 0);
+  const target = wantSeason != null ? wantSeason : allSeasons.length ? allSeasons[0].season_number : 1;
+
+  let eps = [];
+  try {
+    const sd = await tmdb("/tv/" + tmdbId + "/season/" + target, {});
+    eps = (sd && Array.isArray(sd.episodes) ? sd.episodes : []).map((ep) => {
+      const out = {
+        season: ep.season_number,
+        number: ep.episode_number,
+        ref: "ep:" + tmdbId + ":" + ep.season_number + ":" + ep.episode_number,
+        title: ep.name || t("Capítulo ", "Episode ") + ep.episode_number,
+      };
+      if (ep.overview) out.overview = String(ep.overview).slice(0, 2000);
+      if (ep.still_path) out.still = IMG + "w300" + ep.still_path;
+      if (ep.air_date) out.airDate = ep.air_date;
+      if (ep.runtime) out.runtimeMinutes = ep.runtime;
+      return out;
+    });
+  } catch (e) {
+    try { kino.log("episodes: no se pudo leer la temporada " + target + " de " + tmdbId + ": " + errText(e)); } catch (_) {}
+  }
+
+  const answer = { episodes: eps };
+
+  // Datos de la serie (los mismos que ya muestra el catálogo)
+  const series = {};
+  const title = show.name || show.original_name;
+  if (title) series.title = String(title).slice(0, 200);
+  if (show.poster_path) series.poster = IMG + "w500" + show.poster_path;
+  if (show.backdrop_path) series.backdrop = IMG + "w780" + show.backdrop_path;
+  if (show.overview) series.overview = String(show.overview).slice(0, 2000);
+  if (/^\d{4}/.test(String(show.first_air_date || ""))) series.year = String(show.first_air_date).slice(0, 4);
+  if (show.vote_average > 0) series.rating = Math.round(show.vote_average * 10) / 10;
+  const genres = (Array.isArray(show.genres) ? show.genres : []).map((g) => g && g.name).filter(Boolean);
+  if (genres.length) series.genres = genres.slice(0, 6);
+  if (Object.keys(series).length) answer.series = series;
+
+  if (allSeasons.length > 1) {
+    answer.seasons = allSeasons.map((s) => ({
+      id: "s:" + tmdbId + ":" + s.season_number,
+      ref: "tv:" + tmdbId + ":" + s.season_number,
+      title: s.name || t("Temporada ", "Season ") + s.season_number,
+      number: s.season_number,
+      current: s.season_number === target,
+    }));
+  }
+  return answer;
 }
 
 export async function resolve(ref) {
