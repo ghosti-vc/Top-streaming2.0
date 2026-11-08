@@ -204,8 +204,8 @@ function kdramaParams(extra) {
 const KD_PLATAFORMAS = [PROV.netflix, PROV.disney, PROV.prime, PROV.hbo, PROV.apple, "344"].join("|");
 
 // Primero los que están en emisión; si faltan, se rellena con estrenos de las mismas plataformas
-// de los últimos 120 días (Inicio y catálogo), de los más recientes a los más antiguos.
-const KD_DIAS_RELLENO = 120;
+// de los últimos 60 días (Inicio y catálogo), de los más recientes a los más antiguos.
+const KD_DIAS_RELLENO = 60;
 async function kdEmisionFilled(limit) {
   const lim = limit || 20;
   const dias = KD_DIAS_RELLENO;
@@ -236,7 +236,7 @@ async function kdEmisionFilled(limit) {
   );
   if (out.length >= lim) return out;
 
-  // 2) Relleno: estrenos de los últimos 120 días, del más reciente al más antiguo.
+  // 2) Relleno: estrenos de los últimos 60 días, del más reciente al más antiguo.
   // Los que ya salieron en el paso 1 no se repiten (los filtra "seen").
   agregar(
     await rawPages(
