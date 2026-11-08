@@ -473,7 +473,8 @@ async function paraTi(limit) {
   return out;
 }
 
-// limit = cuantos titulos por fila: 20 en Inicio (por defecto), 35 en el catalogo.
+// limit = cuantos titulos por fila: 20 en Inicio (por defecto), 50 en el catalogo
+// (la fila de K-Dramas en emision se queda en 35 en el catalogo).
 function rowDefs(limit) {
   const lim = limit || 20;
   const platform = (key, name) => [
@@ -522,7 +523,7 @@ function rowDefs(limit) {
         id: "kdramas-emision",
         title: t("K-Dramas en emisión", "K-Dramas on air"),
         genre: "doramas",
-        load: async () => kdEmisionFilled(lim),
+        load: async () => kdEmisionFilled(lim > 20 ? 35 : lim),
       },
       {
         id: "top-kdramas",
@@ -670,7 +671,7 @@ export async function home() {
 }
 
 export async function section({ tab }) {
-  // En el catalogo: 35 titulos por fila. Series Turcas solo sale aqui, no en el Inicio.
+  // En el catalogo: 50 titulos por fila (35 en K-Dramas en emision). Series Turcas solo sale aqui, no en el Inicio.
   const tabs = [
     { id: "netflix", label: "Netflix" },
     { id: "prime", label: "Prime Video" },
@@ -682,7 +683,7 @@ export async function section({ tab }) {
     { id: "turcas", label: "Series Turcas" },
   ];
   const chosen = tabs.some((x) => x.id === tab) ? tab : "netflix";
-  const all = rowDefs(35);
+  const all = rowDefs(50);
   return { tabs, tab: chosen, rows: await buildRows(all[chosen]) };
 }
 
