@@ -75,7 +75,10 @@ async function rawPages(kind, path, params, n) {
   const count = Math.max(1, Math.ceil((n || 20) / 20));
   if (count === 1) return raw(kind, path, params);
   const parts = await Promise.all(
-    Array.from({ length: count }, (_, i) => raw(kind, path, Object.assign({}, params, { page: i + 1 })))
+    Array.from({ length: count }, (_, i) =>
+      // Si una pagina falla, esa pagina queda vacia y la fila sale con menos titulos.
+      raw(kind, path, Object.assign({}, params, { page: i + 1 })).catch(() => [])
+    )
   );
   return [].concat(...parts);
 }
